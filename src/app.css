@@ -1,0 +1,79 @@
+@import 'tailwindcss';
+
+@theme {
+	--color-ground: #0f1417;
+	--color-edge: #1c2428;
+	--color-grid: #161d21;
+	--color-rail: #3a474e;
+	--color-rail-dim: #232c31;
+	--color-faint: #56636b;
+	--color-muted: #8b9aa3;
+	--color-ink: #e6edf0;
+	--color-needs: #ffb000;
+	--color-working: #4fb3ff;
+	--color-review: #5bd08a;
+	--color-failed: #ff8a80;
+	--font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+	--font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+html,
+body {
+	height: 100%;
+}
+
+body {
+	margin: 0;
+	background: var(--color-ground);
+	color: var(--color-ink);
+	font-family: var(--font-sans);
+	font-size: 14px;
+	line-height: 1.4;
+}
+
+button {
+	cursor: pointer;
+}
+
+:focus-visible {
+	outline: 2px solid var(--color-ink);
+	outline-offset: 2px;
+}
+
+/* One state = fill and border of a node, text colour next to it, text colour on top of it. */
+.s-needs {
+	--fill: #ffb000;
+	--stroke: #ffb000;
+	--tone: #ffb000;
+	--on: #0f1417;
+}
+.s-working {
+	--fill: #4fb3ff;
+	--stroke: #4fb3ff;
+	--tone: #4fb3ff;
+	--on: #0f1417;
+}
+.s-review {
+	--fill: #5bd08a;
+	--stroke: #5bd08a;
+	--tone: #5bd08a;
+	--on: #0f1417;
+}
+.s-failed {
+	--fill: #ff6b5e;
+	--stroke: #ff6b5e;
+	--tone: #ff8a80;
+	--on: #0f1417;
+}
+.s-open {
+	--fill: #0f1417;
+	--stroke: #c9d3d8;
+	--tone: #c9d3d8;
+	--on: #c9d3d8;
+}
+.s-done {
+	--fill: #1c2428;
+	--stroke: #56636b;
+	--tone: #8b9aa3;
+	--on: #8b9aa3;
+}
