@@ -51,14 +51,22 @@ screen; the dialog can only replace or remove it.
 
 A `.env` file still works (see `.env.example`). Saved settings win over it.
 
-### Package it
+### Download it
+
+Installers for Linux (AppImage), Windows and macOS are on the
+[releases page](https://github.com/vargaking/wtfwid/releases). Nothing is code-signed, so
+Windows and macOS will warn before running it. The Windows and macOS builds come straight
+out of CI and have not been run by a person.
+
+A release is published automatically: raise `"version"` in `package.json`, merge to `main`,
+and the workflow in `.github/workflows/release.yml` builds all three and publishes them as
+`v<version>`.
+
+### Package it yourself
 
 ```sh
 pnpm dist        # writes an installer for your OS into dist/
 ```
-
-On Linux that is an AppImage. Windows and macOS targets are configured but have not been
-built or run, and nothing is code-signed.
 
 ### Without Electron
 
