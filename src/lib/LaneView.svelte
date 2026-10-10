@@ -93,7 +93,7 @@
 						<span class="absolute top-3 whitespace-nowrap" style="left: {t.x + 6}px">{t.label}</span>
 					{/if}
 				{/each}
-				<span class="absolute top-3 text-ink" style="left: {view.nowX + 6}px">now</span>
+				<span class="absolute top-3 whitespace-nowrap text-ink" style="left: {view.nowX + 6}px">{view.nowLabel}</span>
 			</div>
 
 			{#each view.lanes as box (box.lane.id)}

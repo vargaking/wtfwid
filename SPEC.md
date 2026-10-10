@@ -76,3 +76,14 @@ One state per ticket, the first of these that applies:
 - **S-63** assumed — With no Linear key configured, the screen shows invented demo data and says so.
 - **S-64** assumed — If one source fails, the others still load and the screen shows a warning.
 - **S-65** assumed — The screen reloads its data every 60 seconds.
+
+## Desktop app and settings
+
+- **S-70** stated — It runs as a desktop app (Electron). The same screen still runs in a browser with `pnpm dev`.
+- **S-71** stated — Keys and other settings are entered in a settings dialog. They are kept in `~/.wtfwid/settings.json`, readable only by the user.
+- **S-72** assumed — The desktop app encrypts keys with the operating system's keychain. Where there is no keychain, and in the browser version, keys are stored without encryption and the dialog says so. A key the desktop app encrypted shows as unreadable in the browser version.
+- **S-73** assumed — Saved settings win. Anything not saved falls back to `.env` and the environment.
+- **S-74** assumed — A saved key is never sent back to the screen. The dialog can replace it or remove it, not show it.
+- **S-75** assumed — Only you can reach it. It answers only requests addressed to this machine, and the desktop app also requires a one-off token that only its own window has.
+- **S-76** assumed — Links to Linear and GitHub open in your browser, not inside the app.
+- **S-77** assumed — The desktop app takes `PATH` from a login shell, so it finds `claude` and `gh` when started from a launcher.

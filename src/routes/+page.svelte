@@ -6,6 +6,7 @@
 	import Mark from '#lib/Mark.svelte';
 	import type { GraphNode } from '#lib/model.ts';
 	import Panel from '#lib/Panel.svelte';
+	import Settings from '#lib/Settings.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -14,6 +15,7 @@
 	let hideFinished = $state(false);
 	let picked = $state<string[]>([]);
 	let focusId = $state<string | null>(null);
+	let settingsOpen = $state(false);
 
 	const graph = $derived(data.graph);
 	const now = $derived(Date.parse(graph.fetchedAt));
@@ -62,6 +64,13 @@
 			>
 				{hideFinished ? 'Show finished' : 'Hide finished'}
 			</button>
+			<button
+				type="button"
+				class="min-h-11 rounded-md border px-3.5 text-sm hover:bg-edge {graph.demo ? 'border-needs text-needs' : 'border-rail text-ink'}"
+				onclick={() => (settingsOpen = true)}
+			>
+				{graph.demo ? 'Connect Linear' : 'Settings'}
+			</button>
 		</div>
 		{#if graph.warnings.length}
 			<ul class="w-full text-failed" role="status">
@@ -77,3 +86,5 @@
 		<Panel nodes={pickedNodes} {focus} onfocus={(id) => (focusId = id)} />
 	</main>
 </div>
+
+<Settings bind:open={settingsOpen} onsaved={() => refreshAll()} />

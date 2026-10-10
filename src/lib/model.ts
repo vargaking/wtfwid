@@ -96,6 +96,22 @@ export interface Graph {
 	lanes: Lane[];
 }
 
+// --- settings ---------------------------------------------------------------
+
+/** saved here · saved but encrypted by another app · taken from the environment · not set */
+export type SecretState = 'saved' | 'locked' | 'env' | 'none';
+
+/** What the settings dialog is given. It never includes a key itself. */
+export interface PublicSettings {
+	linearTeam: string;
+	githubRepos: string[];
+	linearKey: SecretState;
+	githubToken: SecretState;
+	/** How a key saved now would be stored. */
+	storage: 'keychain' | 'file';
+	file: string;
+}
+
 export function mostUrgent(states: NodeState[]): NodeState {
 	return STATE_ORDER.find((s) => states.includes(s)) ?? 'done';
 }
