@@ -1,0 +1,83 @@
+name: Build and release
+
+# Every push to main and every pull request is tested and built for Linux, Windows and macOS.
+# A push to main also publishes a release, if package.json has a version that has not been
+# released yet. To release: raise "version" in package.json and merge.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm check
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Package the desktop app
+        run: pnpm exec electron-builder --publish never
+        env:
+          # nothing is code-signed; do not go looking for a certificate
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wtfwid-${{ matrix.os }}
+          path: |
+            dist/*.AppImage
+            dist/*.exe
+            dist/*.dmg
+          if-no-files-found: error
+
+  release:
+    needs: [test, build]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Publish, unless this version is already released
+        run: |
+          tag="v$(jq -r .version package.json)"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "$tag is already released. Raise \"version\" in package.json to publish a new one."
+            exit 0
+          fi
+          gh run download "$GITHUB_RUN_ID" --dir artifacts
+          ls -R artifacts
+          gh release create "$tag" artifacts/*/* --title "$tag" --generate-notes --target "$GITHUB_SHA"

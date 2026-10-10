@@ -1,8 +1,13 @@
 {
 	"name": "wtfwid",
 	"private": true,
-	"version": "0.0.1",
+	"version": "0.1.0",
+	"description": "What the f was I doing: tickets, Claude Code sessions and pull requests on one timeline.",
+	"author": "vargaking",
 	"type": "module",
+	"packageManager": "pnpm@10.28.0",
+	"main": "electron/main.js",
+	"desktopName": "wtfwid.desktop",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -35,9 +40,6 @@
 	"imports": {
 		"#lib/*": "./src/lib/*"
 	},
-	"description": "What the f was I doing: tickets, Claude Code sessions and pull requests on one timeline.",
-	"author": "vargaking",
-	"main": "electron/main.js",
 	"build": {
 		"appId": "io.github.vargaking.wtfwid",
 		"productName": "wtfwid",
@@ -67,7 +69,7 @@
 			"target": [
 				"nsis"
 			]
-		}
-	},
-	"desktopName": "wtfwid.desktop"
+		},
+		"artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+	}
 }
