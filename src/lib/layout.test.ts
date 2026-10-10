@@ -95,6 +95,16 @@ describe('lines and branches', () => {
 		expect(hidden.connectors).toHaveLength(1);
 	});
 
+	it('S-10 labels days up to today, and lets "now" carry the date just after midnight', () => {
+		const noon = layout(graph([trunk]), NOW, 160);
+		expect(noon.nowLabel).toBe('now');
+		expect(noon.ticks.filter((t) => t.label).at(-1)?.label).toBe('Sat 10 Oct');
+
+		const justAfterMidnight = layout(graph([trunk]), Date.parse('2026-10-10T00:05:00.000Z'), 160);
+		expect(justAfterMidnight.nowLabel).toBe('Sat 10 Oct · now');
+		expect(justAfterMidnight.ticks.filter((t) => t.label).at(-1)?.label).toBe('Fri 9 Oct');
+	});
+
 	it('counts states for the header', () => {
 		expect(view.counts).toEqual({ needs: 0, working: 1, review: 0, failed: 0 });
 	});

@@ -8,7 +8,7 @@ import { collectSessions } from './sessions';
 
 /** Reads all three sources. A source that fails becomes a warning, not an error (S-64). */
 export async function collect(now = Date.now()): Promise<Snapshot> {
-	const cfg = config();
+	const cfg = await config();
 	if (cfg.snapshotFile) return JSON.parse(await readFile(cfg.snapshotFile, 'utf8'));
 	if (!cfg.linearKey) return demoSnapshot(now); // S-63
 

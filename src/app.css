@@ -22,6 +22,11 @@ body {
 	height: 100%;
 }
 
+html {
+	/* dark scrollbars and form controls */
+	color-scheme: dark;
+}
+
 body {
 	margin: 0;
 	background: var(--color-ground);

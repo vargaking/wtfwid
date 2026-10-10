@@ -7,6 +7,8 @@ export const AXIS_H = 40;
 const PAD = 48;
 /** Nodes closer than this merge into a cluster (S-35). Also the room one label needs. */
 const GAP = 68;
+/** Room a date label on the axis needs. */
+const LABEL_W = 80;
 /** How far left of a milestone's first node its branch leaves the trunk. */
 const ELBOW = 28;
 
@@ -46,6 +48,8 @@ export interface Layout {
 	width: number;
 	height: number;
 	nowX: number;
+	/** "now", with today's date in front when the date's own label had no room. */
+	nowLabel: string;
 	lanes: LaneBox[];
 	connectors: Connector[];
 	ticks: Tick[];
@@ -145,13 +149,19 @@ export function layout(graph: Graph, now: number, pxPerDay: number, hideFinished
 	}
 
 	// One labelled tick per day when there is room, otherwise one per week.
+	// Days after today get a line but no label, which leaves room for the "now" label.
 	const ticks: Tick[] = [];
 	const everyDay = pxPerDay >= 90;
+	let nowLabel = 'now';
 	for (let t = t0; t <= now + 2 * DAY; t = startOfDay(t + DAY + DAY / 2)) {
-		const monday = new Date(t).getDay() === 1;
-		// Days after today get a line but no label, which leaves room for the "now" label.
-		const labelled = t <= now && (everyDay || monday);
-		ticks.push({ x: Math.round(xOf(t, t0, pxPerDay)), label: labelled ? dayLabel(t) : null });
+		const tx = Math.round(xOf(t, t0, pxPerDay));
+		let labelled = t <= now && (everyDay || new Date(t).getDay() === 1);
+		if (labelled && nowX - tx < LABEL_W) {
+			// just after midnight the date and "now" would overlap, so "now" carries the date
+			labelled = false;
+			nowLabel = `${dayLabel(t)} · now`;
+		}
+		ticks.push({ x: tx, label: labelled ? dayLabel(t) : null });
 	}
 
 	const count = (s: NodeState) => visible.reduce((sum, l) => sum + l.nodes.filter((n) => n.state === s).length, 0);
@@ -160,6 +170,7 @@ export function layout(graph: Graph, now: number, pxPerDay: number, hideFinished
 		width: nowX + 260,
 		height: AXIS_H + lanes.length * LANE_H + 32,
 		nowX,
+		nowLabel,
 		lanes,
 		connectors,
 		ticks,

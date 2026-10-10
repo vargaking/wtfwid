@@ -21,27 +21,48 @@ Needs Node 22 and pnpm.
 
 ```sh
 pnpm install
-pnpm dev
+pnpm desktop     # builds and opens the desktop app
 ```
 
-With nothing configured it shows demo data. To see your own:
+Or in a browser: `pnpm dev`.
 
-```sh
-cp .env.example .env    # then fill it in
-```
+With nothing configured it shows demo data. Click **Connect Linear** and fill in:
 
-| Variable | What it is |
+| Setting | What it is |
 | --- | --- |
-| `LINEAR_API_KEY` | A Linear personal API key. |
-| `WTFWID_LINEAR_TEAM` | Team key, e.g. `ENG`. Empty reads every team. |
-| `WTFWID_GITHUB_REPOS` | `owner/repo`, comma separated. |
-| `GITHUB_TOKEN` | Optional. Falls back to `gh auth token`. |
+| Linear API key | A personal API key. Linear: Settings → Account → Security & Access. |
+| Linear team key | The prefix of your issue IDs, e.g. `ENG`. Empty reads every team. |
+| GitHub repositories | `owner/repo`, comma separated. |
+| GitHub token | Optional. Without one, wtfwid uses `gh auth token`. |
 
 Sessions come from `claude agents --json --all`, so Claude Code has to be installed on the
 machine wtfwid runs on.
 
-To run a build instead of the dev server: `pnpm build && pnpm start`. It listens on
-`127.0.0.1:4173`.
+### Where your keys go
+
+Into `~/.wtfwid/settings.json`, readable only by you. A saved key is never sent back to the
+screen; the dialog can only replace or remove it.
+
+- The desktop app encrypts keys with your system keychain. The dialog tells you whether it did.
+- On Linux that needs a running keyring (GNOME Keyring or KWallet). On a bare window
+  manager Electron does not look for one; start the app with
+  `--password-store=gnome-libsecret` to use GNOME Keyring anyway.
+- The browser version has no keychain and stores keys without encryption.
+
+A `.env` file still works (see `.env.example`). Saved settings win over it.
+
+### Package it
+
+```sh
+pnpm dist        # writes an installer for your OS into dist/
+```
+
+On Linux that is an AppImage. Windows and macOS targets are configured but have not been
+built or run, and nothing is code-signed.
+
+### Without Electron
+
+`pnpm build && pnpm start` serves the same screen on `127.0.0.1:4173`.
 
 ## How a session ends up on the right ticket
 
