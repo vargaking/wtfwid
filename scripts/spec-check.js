@@ -3,9 +3,10 @@
 // report. With --strict it fails when a test names a statement that does not exist,
 // an ID is written twice, or a test that names a statement fails.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const STATEMENT = /^- \*\*(S-\d+)\*\* (stated|assumed|open) — (.*)$/;
 const ID = /S-\d+/g;
@@ -84,7 +85,9 @@ export function report(result) {
 	return out.join('\n');
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Run as a command, not imported by its tests. Compared as real paths: the URL form of a
+// path differs from the path itself as soon as it has a space, a symlink or a drive letter.
+if (process.argv[1] && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1])) {
 	const dir = mkdtempSync(join(tmpdir(), 'wtfwid-spec-'));
 	const file = join(dir, 'tests.json');
 	try {
