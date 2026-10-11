@@ -189,6 +189,8 @@ describe('the relay as a program, and the hook that reports to it', () => {
 	const fire = (input, env) =>
 		new Promise((resolve, reject) => {
 			const child = execFile('sh', [hookScript], { env: { PATH: process.env.PATH, ...env } }, (error, stdout, stderr) => (error ? reject(error) : resolve({ stdout, stderr })));
+			// a script that is done before it was handed everything is not this test's failure
+			child.stdin.on('error', () => {});
 			child.stdin.end(JSON.stringify(input));
 		});
 

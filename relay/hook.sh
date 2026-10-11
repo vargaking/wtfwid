@@ -12,11 +12,14 @@
 #
 # It never fails and never holds the session up: whatever goes wrong, it exits 0.
 
+# Claude Code hands the event to a hook as JSON on standard input. Read it in every case, so
+# that whoever is writing it is never left writing to a script that has already gone.
+input=
+[ -t 0 ] || input=$(cat)
+
 [ -n "$WTFWID_RELAY_URL" ] && [ -n "$WTFWID_RELAY_TOKEN" ] || exit 0
 command -v curl >/dev/null 2>&1 || exit 0
-
-# Claude Code hands the event to a hook as JSON on standard input.
-input=$(cat)
+[ -n "$input" ] || exit 0
 
 dir="${CLAUDE_PROJECT_DIR:-.}"
 branch=$(git -C "$dir" branch --show-current 2>/dev/null)
