@@ -4,6 +4,7 @@ import { config } from './config';
 import { discoverSessions } from './discover';
 import { fetchPullDigest, fetchPullRequests, githubToken } from './github';
 import { fetchIssues } from './linear';
+import { fetchRelay } from './relay';
 import { listSessions } from './sessions';
 import { homedir } from 'node:os';
 import { branchHistory, claudeHome, findTranscript, lastBranch, readNote } from './transcript';
@@ -231,6 +232,23 @@ function checkLinking(issues: Issue[], recent: Session[], past: Session[]): Chec
 	};
 }
 
+/** The relay that sessions in the cloud report to (S-91), if one is set up. */
+async function checkRelay({ cfg, fetcher }: Deps): Promise<Check> {
+	const name = 'Relay';
+	if (!cfg.relayUrl || !cfg.relayToken) {
+		return { name, ok: null, summary: 'No relay is set.', details: ['Without one, wtfwid cannot say whether a session in the cloud is working or waiting for you'] };
+	}
+	try {
+		const { sessions, notes } = await fetchRelay(cfg.relayUrl, cfg.relayToken, Date.now(), fetcher);
+		const count = (state: Session['state']) => sessions.filter((s) => !s.gone && s.state === state).length;
+		const details = [`${count('working')} working, ${count('needs')} waiting for you, ${sessions.filter((s) => s.gone).length} ended`, `${plural(notes.length, 'note')} left through the connector`];
+		if (!sessions.length) details.push('No session has reported yet: check the hook in the repository, the two variables in the cloud environment, and that the relay is on its list of allowed domains');
+		return { name, ok: true, summary: `The relay answered: ${plural(sessions.length, 'session')} reported in the last six weeks.`, details };
+	} catch (e) {
+		return { name, ok: false, summary: `Could not read the relay: ${message(e)}.`, details: [] };
+	}
+}
+
 export async function checkAll(over: Partial<Deps> = {}): Promise<Check[]> {
 	const deps: Deps = { cfg: over.cfg ?? (await config()), fetcher: fetch, list: listSessions, claude: claudeHome(), ghToken: githubToken, ...over };
 	const [linear, github, listed] = await Promise.all([checkLinear(deps), checkGitHub(deps), checkSessions(deps)]);
@@ -239,8 +257,8 @@ export async function checkAll(over: Partial<Deps> = {}): Promise<Check[]> {
 	const live = new Set(listed.sessions.map((s) => s.id));
 	const past = (await discoverSessions(deps.claude).catch(() => [] as Session[])).filter((s) => !live.has(s.id));
 	if (listed.check.ok) listed.check.details.push(`${plural(past.length, 'more past session')} found as transcripts on disk`);
-	const cloud = await checkCloud(deps, linear.issues, github.prs, github.token);
-	return [linear.check, github.check, listed.check, transcripts.check, checkLinking(linear.issues, transcripts.sessions, past), cloud];
+	const [cloud, relay] = await Promise.all([checkCloud(deps, linear.issues, github.prs, github.token), checkRelay(deps)]);
+	return [linear.check, github.check, listed.check, transcripts.check, checkLinking(linear.issues, transcripts.sessions, past), cloud, relay];
 }
 
 /** The same result as plain text, to paste into a chat or an issue. */

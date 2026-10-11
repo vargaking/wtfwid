@@ -22,7 +22,8 @@ function alertFor(node: GraphNode, kind: Alert['kind']): Alert {
  * read, tickets and sessions are simply missing, and that would look like everything stopped.
  */
 export function reliable(graph: Graph): boolean {
-	return !graph.setup && !graph.warnings.some((w) => w.startsWith('Linear') || w.startsWith('Claude Code'));
+	// the relay too: when it cannot be reached, every session in the cloud is missing at once
+	return !graph.setup && !graph.warnings.some((w) => w.startsWith('Linear') || w.startsWith('Claude Code') || w.startsWith('Cloud sessions'));
 }
 
 /**

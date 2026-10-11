@@ -39,7 +39,9 @@
 	const cloud = $derived.by(() => {
 		const byUrl = new Map<string, number[]>();
 		for (const pr of focus?.prs ?? []) for (const url of pr.sessions ?? []) byUrl.set(url, [...(byUrl.get(url) ?? []), pr.number]);
-		return [...byUrl].map(([url, prs]) => ({ url, prs }));
+		// one that reports through the relay is listed with the sessions, with its state
+		const reporting = new Set(focus?.sessions.map((s) => s.url));
+		return [...byUrl].filter(([url]) => !reporting.has(url)).map(([url, prs]) => ({ url, prs }));
 	});
 	const wayOf = (session: string) => ways.find((w) => w.session === session);
 	/** The tickets just before and after position `at` on a session's way: enough to step along it. */
@@ -101,6 +103,12 @@
 	$effect(() => {
 		for (const s of focus?.sessions ?? []) {
 			if (settled.has(s.id)) continue;
+			// a session in the cloud has no transcript here; what it reported is already on it
+			if (s.kind === 'cloud') {
+				settled.add(s.id);
+				answered[s.id] = true;
+				continue;
+			}
 			fetch(`/api/session/${encodeURIComponent(s.id)}`)
 				.then((r) => {
 					if (r.ok) return r.json() as Promise<SessionNote>;
@@ -272,7 +280,7 @@
 					<li>
 						<div class="font-medium">{s.name ?? 'unnamed session'}</div>
 						<div class="s-{s.state}" style="color: var(--tone)">
-							{SESSION_LABEL[s.state]}{#if s.waitingFor}: {s.waitingFor}{/if}{#if s.gone}, no longer listed{/if}
+							{s.kind === 'cloud' && s.state === 'open' && !s.gone ? 'its turn is over' : SESSION_LABEL[s.state]}{#if s.waitingFor}: {s.waitingFor}{/if}{#if s.gone}{s.kind === 'cloud' ? ', ended' : ', no longer listed'}{/if}
 						</div>
 						{#if !s.gone && live[s.id]?.length}
 							<!-- S-85: what it is doing, newest first; filled by the stream as it happens -->
@@ -286,9 +294,29 @@
 								{/each}
 							</ol>
 						{/if}
-						<div class="mt-1.5 font-mono text-xs break-all text-muted">{s.cwd}</div>
+						<div class="mt-1.5 font-mono text-xs break-all text-muted">{s.kind === 'cloud' ? `in the cloud${s.cwd ? ` · ${s.cwd}` : ''}` : s.cwd}</div>
 						{#if s.branch}
 							<div class="font-mono text-xs break-all text-muted">on {s.branch}</div>
+						{/if}
+						{#if s.kind === 'cloud'}
+							<!-- S-91: what it reported about itself through the relay -->
+							{#if s.lastAt}<div class="font-mono text-xs text-muted">last heard from {when(s.lastAt)}</div>{/if}
+							{#if s.lastAsked}{@render said('You last asked', s.lastAsked, false)}{/if}
+							{#if s.lastSaid}
+								{@render said('Claude last said', s.lastSaid, expanded[s.id])}
+								{#if s.lastSaid.length > 280}
+									<button type="button" class="-ml-2 min-h-9 rounded px-2 text-xs text-muted hover:text-ink" onclick={() => (expanded[s.id] = !expanded[s.id])}>
+										{expanded[s.id] ? 'show less' : 'show more'}
+									</button>
+								{/if}
+							{/if}
+							{#if s.url}
+								<a class="mt-2.5 inline-flex min-h-9 items-center rounded-md border border-rail px-3 text-[13px] hover:bg-edge" href={s.url} target="_blank" rel="noreferrer">Open on claude.ai</a>
+							{/if}
+							{#if s.url && wayOf(s.url)}
+								{@const way = wayOf(s.url)!}
+								<div class="mt-1.5 text-xs text-muted">One session, {way.nodes.length} tickets.</div>
+							{/if}
 						{/if}
 						{#if note?.story && note.story.toolCalls}
 							<!-- S-84: what the session did, from its transcript -->
@@ -386,6 +414,31 @@
 									<code class="mt-1.5 block font-mono text-xs break-all text-muted select-all">{resume}</code>
 								{/if}
 							{/if}
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+
+		{#if focus.notes?.length}
+			<!-- S-91: where conversations about this ticket got to, as they noted it themselves -->
+			{@render heading(focus.notes.length === 1 ? 'Note' : 'Notes')}
+			<ul class="mt-2 space-y-3">
+				{#each focus.notes as n (n.id)}
+					<li>
+						<div class="font-medium">{n.title}</div>
+						<div class="font-mono text-xs text-muted">{when(n.at)}</div>
+						<p class="mt-1 text-[13px] leading-snug break-words whitespace-pre-line">{n.summary}</p>
+						{#if n.decided.length}
+							<div class="mt-1.5 font-mono text-[11px] tracking-[0.06em] text-muted uppercase">Decided</div>
+							<ul class="mt-0.5 list-disc pl-4 text-[13px] leading-snug">{#each n.decided as d, i (i)}<li>{d}</li>{/each}</ul>
+						{/if}
+						{#if n.open.length}
+							<div class="mt-1.5 font-mono text-[11px] tracking-[0.06em] text-needs uppercase">Still open</div>
+							<ul class="mt-0.5 list-disc pl-4 text-[13px] leading-snug">{#each n.open as d, i (i)}<li>{d}</li>{/each}</ul>
+						{/if}
+						{#if n.url}
+							<a class="mt-1 inline-block text-xs text-muted underline underline-offset-2 hover:text-ink" href={n.url} target="_blank" rel="noreferrer">Open the conversation</a>
 						{/if}
 					</li>
 				{/each}
