@@ -32,6 +32,29 @@ export interface PullRequest {
 	branch: string;
 	state: 'open' | 'draft' | 'merged' | 'closed';
 	createdAt: string;
+	/** When GitHub last saw it change. Used to know when its files and commits must be read again. */
+	updatedAt?: string;
+	/**
+	 * Links to the Claude Code sessions that worked on it (S-90). A session that runs in the
+	 * cloud leaves its link in the pull request's description and in its commits; that is the
+	 * only trace of it outside claude.ai.
+	 */
+	sessions?: string[];
+}
+
+/** What wtfwid keeps of a pull request after reading its files and commits once (S-56, S-90). */
+export interface PullDigest {
+	/** Which state of the pull request this was read from (its `updatedAt`), and when. */
+	stamp: string;
+	readAt: number;
+	/** Files it changes, most changed first. */
+	files: { path: string; changes: number }[];
+	added: number;
+	removed: number;
+	/** Its commits: when, in whole minutes since 1970, and which of `sessions` made it (-1: none named). */
+	commits: [number, number][];
+	/** Session links from the commits' `Claude-Session:` trailers, in order of first appearance. */
+	sessions: string[];
 }
 
 export interface Session {
@@ -143,6 +166,10 @@ export interface Digest {
 	removed: number;
 	tokens: number;
 	costUSD: number | null;
+	/** Links to the cloud sessions behind it, when this came from a pull request (S-90). */
+	cloud?: string[];
+	/** When it committed, in whole minutes since 1970, when this came from a pull request. */
+	commits?: number[];
 }
 
 /** How two nodes on the timeline belong together (S-86). */
@@ -171,6 +198,10 @@ export interface Work {
 	costUSD: number | null;
 	/** When, as [from, to] in whole minutes since 1970, in order. Sessions that ran side by side overlap. */
 	spans: [number, number][];
+	/** When its pull requests' commits were made, in whole minutes since 1970, in order (S-90). */
+	commits: number[];
+	/** Lines its pull requests add and remove, as GitHub counts them. Left out without pull request data. */
+	lines?: { added: number; removed: number };
 }
 
 // --- what the screen draws -------------------------------------------------
@@ -216,6 +247,8 @@ export interface Graph {
 	lanes: Lane[];
 	/** Strongest first. Left out until sessions have been read. */
 	relations?: Relation[];
+	/** The sessions that worked on more than one ticket, each with the tickets in the order it came to them. */
+	threads?: { session: string; nodes: string[] }[];
 }
 
 // --- settings ---------------------------------------------------------------

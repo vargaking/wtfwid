@@ -1,4 +1,4 @@
-import type { Digest, GraphNode, Lane, Relation, Work } from './model';
+import type { Digest, GraphNode, Lane, PullDigest, PullRequest, Relation, Work } from './model';
 
 /**
  * Works out which tickets belong together (S-86), from what their sessions did:
@@ -6,6 +6,43 @@ import type { Digest, GraphNode, Lane, Relation, Work } from './model';
  * - a session that went from one ticket's branch to another's carried one into the other.
  * Nothing here reads a file: it is given what was already read from the transcripts.
  */
+
+/** The name a pull request goes by wherever what was read of it is kept. */
+export const pullKey = (pr: Pick<PullRequest, 'repo' | 'number'>) => `${pr.repo.toLowerCase()}#${pr.number}`;
+
+/**
+ * What was read of a pull request, in the shape of what is read of a session, so both
+ * relate tickets the same way. Its checkout is the repository on GitHub: a file there is
+ * not the same file as one in a folder on this machine, even if it is.
+ */
+export function pullAsDigest(pr: Pick<PullRequest, 'repo' | 'sessions'>, pull: PullDigest): Digest {
+	return {
+		stamp: pull.stamp,
+		readAt: pull.readAt,
+		root: `github.com/${pr.repo.toLowerCase()}`,
+		files: pull.files.map((f) => ({ path: f.path, edits: f.changes })),
+		branches: [],
+		spans: [],
+		minutes: 0,
+		added: pull.added,
+		removed: pull.removed,
+		tokens: 0,
+		costUSD: null,
+		// the links in its commits, and the one in its description
+		cloud: [...new Set([...pull.sessions, ...(pr.sessions ?? [])])],
+		commits: pull.commits.map(([at]) => at)
+	};
+}
+
+/** Everything read about a node: its sessions' transcripts and its pull requests. */
+function sourcesOf(node: GraphNode, digests: Record<string, Digest | undefined>): Digest[] {
+	return [...node.sessions.map((s) => digests[s.id]), ...node.prs.map((p) => digests[`pr:${pullKey(p)}`])].filter((d): d is Digest => !!d);
+}
+
+/** The cloud sessions known to have worked on a node: from what was read of its pull requests, else from their descriptions. */
+export function cloudSessions(node: GraphNode, digests: Record<string, Digest | undefined> = {}): string[] {
+	return [...new Set(node.prs.flatMap((p) => [...(digests[`pr:${pullKey(p)}`]?.cloud ?? []), ...(p.sessions ?? [])]))];
+}
 
 /** A Claude Code worktree inside a checkout: `<checkout>/.claude/worktrees/<name>`. */
 const WORKTREE = /[\\/]\.claude[\\/]worktrees[\\/][^\\/]+/;
@@ -32,6 +69,48 @@ export function fileIn(path: string, root: string): string | null {
 	if (!full.startsWith(`${root}/`) && !full.startsWith(`${root}\\`)) return null;
 	const inside = full.slice(root.length + 1);
 	return NOISE.test(inside) ? null : inside;
+}
+
+/** The way one session went: the tickets it worked on, in order. */
+export interface Thread {
+	/** The session: its id, or for one that ran in the cloud its link. */
+	session: string;
+	/** Node ids, in the order the session came to them. At least two. */
+	nodes: string[];
+}
+
+/**
+ * Every session that worked on more than one ticket, with the way it went (S-86, S-90).
+ * A session on this machine is followed by the branches it was on. A session in the cloud
+ * is followed by the pull requests that carry its link, in the order their tickets started;
+ * people do keep one cloud session going over many tickets, and then this is the line of
+ * work those tickets belong to.
+ */
+export function threads(lanes: Lane[], digests: Record<string, Digest | undefined>, ticketOf: (branch: string) => string | null): Thread[] {
+	const nodes = lanes.flatMap((l) => l.nodes);
+	const byId = new Map(nodes.map((n) => [n.id, n]));
+	const out: Thread[] = [];
+
+	for (const node of nodes) {
+		for (const s of node.sessions) {
+			const went: string[] = [];
+			for (const branch of digests[s.id]?.branches ?? []) {
+				const id = ticketOf(branch);
+				if (id && byId.has(id) && id !== went.at(-1)) went.push(id);
+			}
+			// A session with no ticket of its own that began on one: it grew out of that ticket.
+			if (node.status === null && went.length && went.at(-1) !== node.id) went.push(node.id);
+			if (went.length > 1) out.push({ session: s.id, nodes: went });
+		}
+	}
+
+	const worked = new Map<string, string[]>();
+	for (const node of nodes) for (const link of cloudSessions(node, digests)) worked.set(link, [...(worked.get(link) ?? []), node.id]);
+	for (const [session, ids] of worked) {
+		const inOrder = [...new Set(ids)].sort((x, y) => byId.get(x)!.at.localeCompare(byId.get(y)!.at) || x.localeCompare(y));
+		if (inOrder.length > 1) out.push({ session, nodes: inOrder });
+	}
+	return out;
 }
 
 /** A file more tickets than this have changed says too little to relate two of them. */
@@ -78,12 +157,11 @@ export function relate(lanes: Lane[], digests: Record<string, Digest | undefined
 	let withFiles = 0;
 	for (const node of nodes) {
 		const mine = new Set<string>();
-		for (const s of node.sessions) {
-			const d = digests[s.id];
-			for (const f of d?.files ?? []) {
-				const inside = fileIn(f.path, d!.root);
+		for (const d of sourcesOf(node, digests)) {
+			for (const f of d.files) {
+				const inside = fileIn(f.path, d.root);
 				// the checkout is part of the name: `src/index.ts` of two different projects is two files
-				if (inside) mine.add(`${d!.root}\n${inside}`);
+				if (inside) mine.add(`${d.root}\n${inside}`);
 			}
 		}
 		if (mine.size) withFiles++;
@@ -104,23 +182,14 @@ export function relate(lanes: Lane[], digests: Record<string, Digest | undefined
 		}
 	}
 
-	// a session that went from one ticket's branch to another's
-	for (const node of nodes) {
-		for (const s of node.sessions) {
-			const went: string[] = [];
-			for (const branch of digests[s.id]?.branches ?? []) {
-				const id = ticketOf(branch);
-				if (id && byId.has(id) && id !== went.at(-1)) went.push(id);
-			}
-			// A session with no ticket of its own that began on one: it grew out of that ticket.
-			if (node.status === null && went.length && went.at(-1) !== node.id) went.push(node.id);
-			for (let i = 1; i < went.length; i++) {
-				const p = pair(went[i - 1], went[i]);
-				if (p.continued) continue; // it went back and forth: the first way stands
-				p.continued = true;
-				p.a = went[i - 1];
-				p.b = went[i];
-			}
+	// a session that went from one ticket to another carried the first into the second
+	for (const { nodes: went } of threads(lanes, digests, ticketOf)) {
+		for (let i = 1; i < went.length; i++) {
+			const p = pair(went[i - 1], went[i]);
+			if (p.continued) continue; // it went back and forth: the first way stands
+			p.continued = true;
+			p.a = went[i - 1];
+			p.b = went[i];
 		}
 	}
 
@@ -171,21 +240,24 @@ export function mergeSpans(spans: [number, number][]): [number, number][] {
 	return out;
 }
 
-/** What went into a node, added up over the sessions that have been read (S-88). */
+/** What went into a node, added up over the sessions and pull requests that have been read (S-88). */
 export function workOf(node: GraphNode, digests: Record<string, Digest | undefined>): Work | undefined {
 	const read = node.sessions.map((s) => digests[s.id]).filter((d): d is Digest => !!d);
-	if (!read.length) return undefined;
+	const pulls = node.prs.map((p) => digests[`pr:${pullKey(p)}`]).filter((d): d is Digest => !!d);
+	if (!read.length && !pulls.length) return undefined;
 	const costs = read.map((d) => d.costUSD).filter((c): c is number => c !== null);
-	const sum = (pick: (d: Digest) => number) => read.reduce((n, d) => n + pick(d), 0);
+	const sum = (from: Digest[], pick: (d: Digest) => number) => from.reduce((n, d) => n + pick(d), 0);
 	return {
-		minutes: sum((d) => d.minutes),
+		minutes: sum(read, (d) => d.minutes),
 		sessions: read.length,
-		added: sum((d) => d.added),
-		removed: sum((d) => d.removed),
-		tokens: sum((d) => d.tokens),
+		added: sum(read, (d) => d.added),
+		removed: sum(read, (d) => d.removed),
+		tokens: sum(read, (d) => d.tokens),
 		costUSD: costs.length ? Math.round(costs.reduce((n, c) => n + c, 0) * 100) / 100 : null,
 		// each session's own stretches, in order. Two sessions at once overlap here: that is
 		// two sessions' worth of work, and whoever needs time of day merges them.
-		spans: read.flatMap((d) => d.spans).sort((x, y) => x[0] - y[0] || x[1] - y[1])
+		spans: read.flatMap((d) => d.spans).sort((x, y) => x[0] - y[0] || x[1] - y[1]),
+		commits: pulls.flatMap((d) => d.commits ?? []).sort((x, y) => x - y),
+		...(pulls.length && { lines: { added: sum(pulls, (d) => d.added), removed: sum(pulls, (d) => d.removed) } })
 	};
 }

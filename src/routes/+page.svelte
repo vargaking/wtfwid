@@ -2,6 +2,7 @@
 	import { goto, refreshAll } from '$app/navigation';
 	import { onMount, tick, untrack } from 'svelte';
 	import LaneView from '#lib/LaneView.svelte';
+	import type { Link } from '#lib/arcs.ts';
 	import { dayOf } from '#lib/days.ts';
 	import { DAY, layout, nextInState, restoreView, startOfDay, unfinished, type Cluster } from '#lib/layout.ts';
 	import type { Action, Graph, GraphNode, Lane, LiveEvent, NodeState } from '#lib/model.ts';
@@ -63,6 +64,23 @@
 					.slice(0, RELATED_SHOWN)
 			: []
 	);
+	/** The ways sessions went that pass through the open ticket (S-86): each the tickets one session worked on, in order. */
+	const ways = $derived(focus ? (graph.threads ?? []).filter((t) => t.nodes.includes(focus.id)) : []);
+	/**
+	 * What the timeline draws for the open ticket: its relations, and the whole way of every
+	 * session that worked on it, lighter away from the ticket itself.
+	 */
+	const links = $derived.by(() => {
+		const out = new Map<string, Link>(related.map((r) => [`${r.relation.a}>${r.relation.b}`, r.relation]));
+		for (const way of ways) {
+			for (let i = 1; i < way.nodes.length; i++) {
+				const [a, b] = [way.nodes[i - 1], way.nodes[i]];
+				if (out.has(`${a}>${b}`) || out.has(`${b}>${a}`)) continue;
+				out.set(`${a}>${b}`, { a, b, continued: true, weight: 0, far: a !== focus?.id && b !== focus?.id });
+			}
+		}
+		return [...out.values()];
+	});
 	const updated = $derived(new Date(now).toTimeString().slice(0, 5));
 	const left = $derived(unfinished(graph));
 
@@ -330,8 +348,8 @@
 				{picked}
 				onpick={pick}
 				onfold={fold}
-				links={related.map((r) => r.relation)}
-				worked={focus?.work ? { spans: focus.work.spans, state: focus.state } : null}
+				{links}
+				worked={focus?.work ? { spans: focus.work.spans, commits: focus.work.commits, state: focus.state } : null}
 				day={dayPick}
 				ondaypick={(t) => pickDay(t, t === startOfDay(now) ? 1 : view.tickDays)}
 			/>
@@ -342,6 +360,7 @@
 				unfinished={left.map((u) => u.node)}
 				onshow={(node) => show(node, laneOf.get(node.id))}
 				{related}
+				ways={ways.map((w) => ({ session: w.session, nodes: w.nodes.flatMap((id) => byId.get(id) ?? []) }))}
 				{day}
 				{today}
 				onday={pickDay}

@@ -17,7 +17,7 @@
 		/** S-86: what the open ticket is related to. Drawn as lines from it; everything else steps back. */
 		links?: Link[];
 		/** S-88: when the open ticket was worked on, as [from, to] in minutes since 1970, and its state for the colour. */
-		worked?: { spans: [number, number][]; state: NodeState } | null;
+		worked?: { spans: [number, number][]; commits: number[]; state: NodeState } | null;
 		/** S-89: the stretch of days the side panel is about, drawn as a band. */
 		day?: { from: number; to: number } | null;
 		/** A date on the axis was clicked: the start of that day. */
@@ -29,6 +29,9 @@
 	/** The ids at either end of a line. While there are lines, what is not among them is drawn dim. */
 	const linked = $derived(new Set(links.flatMap((l) => [l.a, l.b])));
 	const isLinked = (c: Cluster) => c.nodes.some((n) => linked.has(n.id));
+	/** The ends of the lines that touch the open ticket itself: those get a ring. */
+	const near = $derived(new Set(links.filter((l) => !l.far).flatMap((l) => [l.a, l.b])));
+	const isNear = (c: Cluster) => c.nodes.some((n) => near.has(n.id));
 	const MINUTE = 60_000;
 	const clock = (minutes: number) => new Date(minutes * MINUTE).toTimeString().slice(0, 5);
 
@@ -163,11 +166,11 @@
 							d={arc.d}
 							fill="none"
 							stroke="var(--color-ink)"
-							stroke-width={arc.width}
-							stroke-opacity={arc.continued ? 0.9 : 0.55}
+							stroke-width={arc.far ? 1.25 : arc.width}
+							stroke-opacity={arc.far ? 0.4 : arc.continued ? 0.9 : 0.55}
 							stroke-dasharray={arc.continued ? undefined : '2 5'}
 							stroke-linecap="round"
-							marker-end={arc.continued ? 'url(#arc-head)' : undefined}
+							marker-end={arc.head ? 'url(#arc-head)' : undefined}
 						/>
 					{/each}
 				</svg>
@@ -213,6 +216,14 @@
 							style="left: {left}px; width: {Math.max(3, xOf(to * MINUTE, view.t0, pxPerDay) - left)}px; background: var(--tone)"
 						></span>
 					{/each}
+					<!-- S-90: and when its pull requests' commits were made: the trace work in the cloud leaves -->
+					{#each worked.commits as at, i (i)}
+						<span
+							title="Commit at {clock(at)}"
+							class="s-{worked.state} absolute bottom-0 h-2 w-0.5 rounded-sm"
+							style="left: {xOf(at * MINUTE, view.t0, pxPerDay) - 1}px; background: var(--tone)"
+						></span>
+					{/each}
 				{/if}
 			</div>
 
@@ -255,7 +266,7 @@
 							aria-label={c.title}
 							title={c.title}
 							class="absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center transition-opacity {box.folded ? 'h-4 min-w-3.5' : 'h-6 min-w-6'}"
-							class:opacity-50={arcs.length > 0 && c.quiet && !isLinked(c) && !isPicked(c)}
+							class:opacity-50={links.length > 0 && c.quiet && !isLinked(c) && !isPicked(c)}
 							style="left: {c.markX}px; top: {cy}px"
 							onclick={() => onpick(c)}
 						>
@@ -264,7 +275,7 @@
 								stage={c.stage}
 								count={c.nodes.length}
 								selected={isPicked(c)}
-								linked={arcs.length > 0 && isLinked(c) && !isPicked(c)}
+								linked={isNear(c) && !isPicked(c)}
 								small={box.folded || (c.quiet && c.stage !== null)}
 								alive={c.state === 'working' || c.state === 'needs'}
 							/>
@@ -274,7 +285,7 @@
 							<div
 								aria-hidden="true"
 								class="s-{c.state} pointer-events-none absolute -translate-y-1/2 bg-ground pr-1 font-mono text-[11px] leading-4 whitespace-nowrap transition-opacity"
-								class:opacity-50={arcs.length > 0 && c.quiet && !isLinked(c) && !isPicked(c)}
+								class:opacity-50={links.length > 0 && c.quiet && !isLinked(c) && !isPicked(c)}
 								style="left: {c.labelX}px; top: {cy}px; color: {c.quiet ? 'color-mix(in srgb, var(--color-muted) 70%, var(--color-ground))' : 'var(--tone)'}"
 							>
 								{c.label}

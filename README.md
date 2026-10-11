@@ -154,11 +154,34 @@ Past sessions are found the same way. Every transcript under `~/.claude/projects
 session, so the timeline has your history the first time you open the app. A past session
 is drawn on the ticket whose branch it was on; one that matches no ticket is left out.
 
+## Sessions that run in the cloud
+
+wtfwid reads sessions from the machine it runs on. A session you start on claude.ai/code
+runs on Anthropic's machines: it is not in `claude agents`, it leaves no transcript here,
+and nothing outside claude.ai can list it or say whether it is waiting for you.
+
+What it does leave is its link, in the description of the pull request it opens and as a
+`Claude-Session:` trailer on its commits. wtfwid reads those:
+
+- A ticket whose pull request names a session shows **Cloud session** with a button that
+  opens it on claude.ai.
+- One cloud session that worked on several tickets is drawn as one line of work through
+  them when you open any of them, and the panel lets you step along it.
+- The panel counts what the pull requests hold (commits, lines), the time axis shows when
+  the commits were made, and a day lists the tickets that had commits.
+- Tickets are related by the files their pull requests change.
+
+This needs a GitHub token (or a logged-in `gh`), because it reads the files and commits of
+each pull request: two requests per pull request, once, kept in `~/.wtfwid/pulls.json`.
+
+Not shown for a cloud session, because nothing says it: whether it is running or waiting,
+how long it worked, what it cost.
+
 ## Which tickets belong together
 
-Nobody tells wtfwid that; it works it out from what the sessions did. Two tickets are
-related when their sessions edited the same files, the more so the fewer other tickets
-touched those files, and when a session moved from one ticket's branch to another's. Open a
+Nobody tells wtfwid that; it works it out from what the sessions and pull requests did.
+Two tickets are related when the same files were changed for both, the more so the fewer
+other tickets touched those files, and when one session worked on both. Open a
 ticket and the timeline draws the lines: solid with an arrow the way a session went, dotted
 for shared files. The same tickets are listed in the side panel with the reason, and they
 go into the prompt you copy for a new session.

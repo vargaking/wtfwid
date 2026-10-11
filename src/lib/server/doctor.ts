@@ -1,8 +1,8 @@
 import { buildGraph } from '../graph';
-import type { Issue, Session } from '../model';
+import type { Issue, PullRequest, Session } from '../model';
 import { config } from './config';
 import { discoverSessions } from './discover';
-import { fetchPullRequests, githubToken } from './github';
+import { fetchPullDigest, fetchPullRequests, githubToken } from './github';
 import { fetchIssues } from './linear';
 import { listSessions } from './sessions';
 import { homedir } from 'node:os';
@@ -75,16 +75,18 @@ const WHY: Record<string, string> = {
 	'404': ', no such repository, or the token cannot see it'
 };
 
-async function checkGitHub({ cfg, fetcher, ghToken }: Deps): Promise<Check> {
+async function checkGitHub({ cfg, fetcher, ghToken }: Deps): Promise<{ check: Check; prs: PullRequest[]; token: string | null }> {
 	const name = 'GitHub';
-	if (!cfg.githubRepos.length) return { name, ok: null, summary: 'No repositories are set.', details: [] };
+	if (!cfg.githubRepos.length) return { check: { name, ok: null, summary: 'No repositories are set.', details: [] }, prs: [], token: null };
 	const token = await ghToken(cfg.githubToken);
+	const all: PullRequest[] = [];
 	const details = [token ? (cfg.githubToken ? 'Using the token from the settings or the environment' : 'Using the login of the GitHub CLI') : 'No token: only public repositories can be read'];
 	let failed = 0;
 	let total = 0;
 	for (const repo of cfg.githubRepos) {
 		try {
 			const prs = await fetchPullRequests([repo], token, fetcher);
+			all.push(...prs);
 			total += prs.length;
 			details.push(`${repo}: ${plural(prs.length, 'pull request')}, ${prs.filter((p) => p.state === 'open' || p.state === 'draft').length} open`);
 		} catch (e) {
@@ -95,9 +97,52 @@ async function checkGitHub({ cfg, fetcher, ghToken }: Deps): Promise<Check> {
 	}
 	const n = cfg.githubRepos.length;
 	return {
+		check: {
+			name,
+			ok: failed === 0,
+			summary: failed ? `Could not read ${failed} of ${plural(n, 'repository', 'repositories')}.` : `Read ${plural(total, 'pull request')} from ${plural(n, 'repository', 'repositories')}.`,
+			details
+		},
+		prs: all,
+		token
+	};
+}
+
+/** How many pull requests have their files and commits read to see whether sessions sign them. */
+const PULLS_SAMPLED = 8;
+
+/**
+ * Sessions that run in the cloud are not on this machine at all. What can be known of them
+ * comes from the pull requests they open (S-90): this says how much of that is there.
+ */
+async function checkCloud({ fetcher }: Deps, issues: Issue[], prs: PullRequest[], token: string | null): Promise<Check> {
+	const name = 'Cloud sessions';
+	if (!prs.length) return { name, ok: null, summary: 'Needs pull requests: a session that runs in the cloud is known by the link it leaves on one.', details: [] };
+	const graph = buildGraph({ fetchedAt: '', demo: false, warnings: [], issues, prs, sessions: [] });
+	const onTickets = graph.lanes.flatMap((l) => l.nodes).filter((n) => n.status !== null).reduce((sum, n) => sum + n.prs.length, 0);
+	const described = prs.filter((p) => p.sessions?.length).length;
+	const details = [`${onTickets} of ${plural(prs.length, 'pull request')} belong to a ticket, by their branch or title`, `${described} name a session in their description`];
+
+	// the commits say it too, and more reliably; look at a few
+	const sample = [...prs].sort((a, b) => (b.updatedAt ?? b.createdAt).localeCompare(a.updatedAt ?? a.createdAt)).slice(0, PULLS_SAMPLED);
+	let read = 0;
+	let signed = 0;
+	for (const pr of token ? sample : []) {
+		const pull = await fetchPullDigest(pr, token, Date.now(), fetcher).catch(() => null);
+		if (!pull) continue;
+		read++;
+		if (pull.sessions.length) signed++;
+	}
+	if (!token) details.push('No GitHub token: the files and commits of pull requests are not read, so tickets are not related by them');
+	else if (read) details.push(`Of the ${read} most recent, ${signed} name a session in their commits`);
+	else details.push('Could not read the commits of any of the most recent ones');
+
+	const found = described + signed > 0;
+	if (!found) details.push('Claude Code adds the link by default; it is missing when "attribution.sessionUrl" is turned off');
+	return {
 		name,
-		ok: failed === 0,
-		summary: failed ? `Could not read ${failed} of ${plural(n, 'repository', 'repositories')}.` : `Read ${plural(total, 'pull request')} from ${plural(n, 'repository', 'repositories')}.`,
+		ok: found ? true : null,
+		summary: found ? `Pull requests name the Claude Code session that made them (${described} of ${prs.length} in the description).` : 'No pull request names a Claude Code session.',
 		details
 	};
 }
@@ -153,7 +198,13 @@ async function checkTranscripts({ claude }: Deps, sessions: Session[]): Promise<
 		`Git branch readable in ${seen.branch}; ${seen.moved} moved from one branch to another`,
 		`${seen.prs} opened a pull request`
 	];
-	if (!seen.found) return { check: { name, ok: false, summary: `No transcript found for any ${of} sessions. Looked in ${tilde(claude)}/projects.`, details: [] }, sessions: withBranch };
+	// Not a fault by itself: sessions that run in the cloud leave nothing here (see "Cloud sessions").
+	if (!seen.found) {
+		return {
+			check: { name, ok: null, summary: `No transcript found for any ${of} sessions. Looked in ${tilde(claude)}/projects.`, details: ['Sessions that run in the cloud leave no transcript on this machine; they are found through their pull requests'] },
+			sessions: withBranch
+		};
+	}
 	if (!seen.asked && !seen.replied) {
 		return { check: { name, ok: false, summary: `Found ${seen.found} ${of}, but could not read any. The format may differ from the one wtfwid knows.`, details }, sessions: withBranch };
 	}
@@ -173,7 +224,8 @@ function checkLinking(issues: Issue[], recent: Session[], past: Session[]): Chec
 	const byNameOnly = link(sessions.map((s) => ({ ...s, branch: null })));
 	return {
 		name,
-		ok: matched > 0,
+		// one or two stray sessions that match nothing are not a fault: most work may run in the cloud
+		ok: matched > 0 ? true : sessions.length < 3 ? null : false,
 		summary: `${matched} of ${plural(sessions.length, 'session')} belong to a ticket (${plural(recent.length, 'recent one')}, ${past.length} from disk).`,
 		details: [`${byNameOnly} by their name or folder, ${matched - byNameOnly} more by the branch they are on`, ...(matched ? [] : ['Work on the branch Linear suggests for the issue, or name the session after it: claude -n "ENG-123 …"'])]
 	};
@@ -187,7 +239,8 @@ export async function checkAll(over: Partial<Deps> = {}): Promise<Check[]> {
 	const live = new Set(listed.sessions.map((s) => s.id));
 	const past = (await discoverSessions(deps.claude).catch(() => [] as Session[])).filter((s) => !live.has(s.id));
 	if (listed.check.ok) listed.check.details.push(`${plural(past.length, 'more past session')} found as transcripts on disk`);
-	return [linear.check, github, listed.check, transcripts.check, checkLinking(linear.issues, transcripts.sessions, past)];
+	const cloud = await checkCloud(deps, linear.issues, github.prs, github.token);
+	return [linear.check, github.check, listed.check, transcripts.check, checkLinking(linear.issues, transcripts.sessions, past), cloud];
 }
 
 /** The same result as plain text, to paste into a chat or an issue. */

@@ -6,6 +6,8 @@ export interface Link {
 	b: string;
 	continued: boolean;
 	weight: number;
+	/** Further along the way a session went, not next to the open ticket: drawn lighter. */
+	far?: boolean;
 }
 
 export interface Arc {
@@ -14,6 +16,9 @@ export interface Arc {
 	d: string;
 	continued: boolean;
 	width: number;
+	far: boolean;
+	/** Whether there is room for an arrowhead: between marks right under each other there is not. */
+	head: boolean;
 }
 
 /** How far from a mark's centre a line starts and stops, so it does not run into the mark. */
@@ -44,7 +49,9 @@ export function arcs(view: Layout, links: Link[]): Arc[] {
 		const dx = to.x - from.x;
 		const dy = to.y - from.y;
 		const length = Math.hypot(dx, dy);
-		if (length < CLEAR * 2 + 4) continue; // in the same cluster, or touching
+		// marks stacked in neighbouring rows are closer than two full clearances: a tighter line fits
+		const clear = length < CLEAR * 2 + 12 ? 9 : CLEAR;
+		if (length < clear * 2 + 4) continue; // in the same cluster, or touching
 		// the bow's height grows with the distance, within limits
 		const bow = Math.min(64, Math.max(16, length * 0.16));
 		// of the two sides of the straight line, the upper one; for a vertical line, the left
@@ -64,16 +71,18 @@ export function arcs(view: Layout, links: Link[]): Arc[] {
 		// leave the marks clear, along the way the line leaves and arrives
 		const out1 = Math.hypot(cx - from.x, cy - from.y);
 		const in1 = Math.hypot(to.x - cx, to.y - cy);
-		const sx = from.x + ((cx - from.x) / out1) * CLEAR;
-		const sy = from.y + ((cy - from.y) / out1) * CLEAR;
-		const ex = to.x - ((to.x - cx) / in1) * CLEAR;
-		const ey = to.y - ((to.y - cy) / in1) * CLEAR;
+		const sx = from.x + ((cx - from.x) / out1) * clear;
+		const sy = from.y + ((cy - from.y) / out1) * clear;
+		const ex = to.x - ((to.x - cx) / in1) * clear;
+		const ey = to.y - ((to.y - cy) / in1) * clear;
 		out.push({
 			key: `${link.a}>${link.b}`,
 			d: `M${round(sx)} ${round(sy)} Q${round(cx)} ${round(cy)} ${round(ex)} ${round(ey)}`,
 			continued: link.continued,
+			far: !!link.far,
+			head: link.continued && clear === CLEAR,
 			// one shared file is a thin line, four or more a thick one: a difference you can see
-			width: link.continued ? 2 : round(1 + Math.min(2, link.weight * 0.5))
+			width: link.continued ? 2 : round(1 + Math.min(1.5, link.weight * 0.5))
 		});
 	}
 	return out;
