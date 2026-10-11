@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { goto, refreshAll } from '$app/navigation';
-	import { onMount, tick } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import LaneView from '#lib/LaneView.svelte';
 	import { layout, nextInState, type Cluster } from '#lib/layout.ts';
 	import Mark from '#lib/Mark.svelte';
-	import type { GraphNode, Lane, NodeState } from '#lib/model.ts';
+	import type { Graph, GraphNode, Lane, NodeState } from '#lib/model.ts';
+	import { alerts, type Alert } from '#lib/notify.ts';
 	import Panel from '#lib/Panel.svelte';
 	import Search from '#lib/Search.svelte';
 	import Settings from '#lib/Settings.svelte';
@@ -68,12 +69,86 @@
 	// fresh: data loaded before the save would still say "not connected".
 	const reload = () => (graph.demo ? goto('/', { invalidateAll: true }) : refreshAll());
 
-	// S-65
+	// S-18: say so when a ticket starts needing you, a session fails, or one stops working.
+	const canNotify = typeof Notification !== 'undefined';
+	let notifyOn = $state(false);
+	let notifyBlocked = $state(false);
+
+	async function toggleNotify() {
+		if (!notifyOn && Notification.permission !== 'granted') {
+			notifyBlocked = (await Notification.requestPermission()) !== 'granted';
+			if (notifyBlocked) return;
+		}
+		notifyOn = !notifyOn;
+		try {
+			localStorage.setItem('wtfwid.notify', notifyOn ? '1' : '0');
+		} catch {
+			// no storage: the choice lasts until the window closes
+		}
+	}
+
+	function send(alert: Alert) {
+		try {
+			const n = new Notification(alert.title, { body: alert.body, tag: alert.id });
+			n.onclick = () => {
+				window.focus();
+				const lane = graph.lanes.find((l) => l.nodes.some((node) => node.id === alert.id));
+				const node = byId.get(alert.id);
+				if (node) show(node, lane);
+			};
+		} catch {
+			// the system refused it; the header still shows the count
+		}
+	}
+
+	let seen: Graph | null = null;
+	$effect(() => {
+		const before = seen;
+		seen = graph;
+		if (!before || before.demo !== graph.demo || !untrack(() => notifyOn)) return;
+		for (const alert of alerts(before, graph)) send(alert);
+	});
+
+	// S-65: read everything again every minute. In between, ask every 15 seconds whether a
+	// session changed state, and read again at once if one did (S-18).
 	onMount(() => {
-		const timer = setInterval(() => !graph.setup && refreshAll(), 60_000);
-		return () => clearInterval(timer);
+		if (canNotify) {
+			let stored: string | null = null;
+			try {
+				stored = localStorage.getItem('wtfwid.notify');
+			} catch {
+				// no storage
+			}
+			// on by default where notifications are already allowed, as in the desktop app
+			notifyOn = stored === null ? Notification.permission === 'granted' : stored === '1' && Notification.permission === 'granted';
+		}
+
+		const refresh = () => !graph.setup && refreshAll();
+		let beat: string | null = null;
+		const check = async () => {
+			if (graph.setup || graph.demo) return;
+			const next = await fetch('/api/pulse').then((r) => (r.ok ? r.text() : null), () => null);
+			if (next === null) return;
+			if (beat !== null && next !== beat) refresh();
+			beat = next;
+		};
+		check();
+		const slow = setInterval(refresh, 60_000);
+		const fast = setInterval(check, 15_000);
+		const onVisible = () => document.visibilityState === 'visible' && check();
+		document.addEventListener('visibilitychange', onVisible);
+		return () => {
+			clearInterval(slow);
+			clearInterval(fast);
+			document.removeEventListener('visibilitychange', onVisible);
+		};
 	});
 </script>
+
+<svelte:head>
+	<!-- the count shows in the window title and the task bar, where you see it without looking here -->
+	<title>{!graph.setup && view.counts.needs ? `(${view.counts.needs}) ` : ''}wtfwid</title>
+</svelte:head>
 
 {#if graph.setup}
 	<Welcome onsaved={reload} />
@@ -107,6 +182,17 @@
 			{#if graph.demo}
 				<span class="rounded border border-rail px-2 py-0.5 font-mono text-xs">demo data</span>
 				<a class="underline underline-offset-2 hover:text-ink" href="/">leave demo</a>
+			{/if}
+			{#if canNotify}
+				<button
+					type="button"
+					aria-pressed={notifyOn}
+					title={notifyBlocked ? 'Notifications are blocked for this page. Allow them in the browser to turn this on.' : 'Notify me when a ticket needs me, a session fails or one stops working'}
+					class="min-h-11 rounded-md border px-3.5 text-sm hover:bg-edge {notifyOn ? 'border-muted text-ink' : 'border-rail text-muted'}"
+					onclick={toggleNotify}
+				>
+					{notifyBlocked ? 'Notifications blocked' : notifyOn ? 'Notifying' : 'Notify me'}
+				</button>
 			{/if}
 			{#if graph.lanes.length}
 				<Search lanes={graph.lanes} onchoose={(hit) => show(hit.node, hit.lane)} />
