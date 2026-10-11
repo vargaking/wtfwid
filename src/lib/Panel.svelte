@@ -2,6 +2,7 @@
 	import { dayLabel } from './layout';
 	import Mark from './Mark.svelte';
 	import type { GraphNode, NodeState, SessionNote } from './model';
+	import { contextPack, resumeCommand } from './pack';
 
 	interface Props {
 		/** the nodes of the cluster that was clicked */
@@ -38,6 +39,18 @@
 				.catch(() => {});
 		}
 	});
+
+	// S-57, S-59: which copy button was pressed last, so it can say so for a moment
+	let copied = $state<string | null>(null);
+	async function copy(key: string, text: string) {
+		try {
+			await navigator.clipboard.writeText(text);
+			copied = key;
+		} catch {
+			copied = `${key}:failed`; // no clipboard here: the text is shown instead, to copy by hand
+		}
+		setTimeout(() => (copied = null), copied?.endsWith(':failed') ? 20_000 : 1600);
+	}
 
 	function when(iso: string | null): string {
 		if (!iso) return '';
@@ -121,6 +134,20 @@
 									{/each}
 								</div>
 							{/if}
+							{@const resume = resumeCommand(s)}
+							{#if resume}
+								<button
+									type="button"
+									title={resume}
+									class="mt-2.5 inline-flex min-h-9 items-center rounded-md border border-rail px-3 text-[13px] hover:bg-edge"
+									onclick={() => copy(`resume:${s.id}`, resume)}
+								>
+									{copied === `resume:${s.id}` ? 'Copied' : 'Copy the command to resume it'}
+								</button>
+								{#if copied === `resume:${s.id}:failed`}
+									<code class="mt-1.5 block font-mono text-xs break-all text-muted select-all">{resume}</code>
+								{/if}
+							{/if}
 						{/if}
 					</li>
 				{/each}
@@ -147,6 +174,21 @@
 				target="_blank"
 				rel="noreferrer">Open in Linear</a
 			>
+		{/if}
+
+		{#if focus.state !== 'done'}
+			<!-- S-57: what wtfwid knows about this ticket, as a prompt for a new session -->
+			{@render heading('Pick it up again')}
+			<button
+				type="button"
+				class="mt-2.5 inline-flex min-h-11 items-center rounded-md border border-rail px-3.5 hover:bg-edge"
+				onclick={() => copy(`pack:${focus.id}`, contextPack(focus, notes))}
+			>
+				{copied === `pack:${focus.id}` ? 'Copied' : 'Copy context for a new session'}
+			</button>
+			{#if copied === `pack:${focus.id}:failed`}
+				<textarea id="context-pack" readonly rows="8" class="mt-2 block w-full rounded-md border border-rail bg-ground p-2 font-mono text-xs text-muted">{contextPack(focus, notes)}</textarea>
+			{/if}
 		{/if}
 	{:else if nodes.length}
 		<h2 class="text-xl font-semibold">{nodes.length} at this spot</h2>

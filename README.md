@@ -96,6 +96,9 @@ asked, the last thing Claude said and the pull requests it opened. That comes st
 Claude Code's transcript of the session, read when you open the ticket. Nothing is written
 and no model is called.
 
+From there you can copy the command that resumes a session (`claude --resume …` in its
+folder), or copy a prompt that hands a new session everything wtfwid knows about the ticket.
+
 ## What it does not do yet
 
 See [SPEC.md](SPEC.md). Every behaviour there has an ID and is marked *stated*, *assumed*
@@ -105,7 +108,6 @@ or *open*; the tests name the statements they cover. The open ones:
 - a written "decided / still open" summary per session
 - branches that start from one specific session
 - "same files" links between tickets
-- starting a new session with everything linked to a ticket
 
 ## Development
 
