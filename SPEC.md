@@ -25,6 +25,7 @@ Tests name the statements they cover (`S-…` in the test title).
 - **S-12** stated — Finished features stay in place on the timeline. There is no separate "closed" section.
 - **S-13** assumed — Finished lines are drawn faded, and one button hides them.
 - **S-14** assumed — The view opens scrolled to now. Zoom changes pixels per day (buttons, or ctrl/cmd + wheel).
+- **S-15** assumed — The counts in the header are buttons. Each one scrolls to the next ticket in that state and opens it, going round. A "now" button scrolls back to now. Reason: with stacked rows the timeline is taller than the window, and a ticket that needs you can be off screen.
 
 ## What a line is
 

@@ -42,6 +42,27 @@
 		return () => viewport.removeEventListener('wheel', onWheel);
 	});
 
+	const glide = (): ScrollBehavior => (matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth');
+
+	/** Scrolls so the node is in view, left of the middle to leave room for its label (S-15). */
+	export function reveal(id: string) {
+		for (const box of view.lanes) {
+			const c = box.clusters.find((c) => c.nodes.some((n) => n.id === id));
+			if (!c) continue;
+			viewport.scrollTo({
+				left: c.x - viewport.clientWidth * 0.4,
+				top: box.y + LINE_Y + c.row * ROW_H - viewport.clientHeight / 2,
+				behavior: glide()
+			});
+			return;
+		}
+	}
+
+	/** Back to where the view opens (S-14). */
+	function toNow() {
+		viewport.scrollTo({ left: view.nowX - viewport.clientWidth + 180, behavior: glide() });
+	}
+
 	function panStart(e: PointerEvent) {
 		if (e.pointerType !== 'mouse' || e.button !== 0) return;
 		if ((e.target as Element).closest('button')) return;
@@ -137,7 +158,8 @@
 	</section>
 
 	<div class="absolute right-4 bottom-4 z-40 flex overflow-hidden rounded-md border border-rail bg-ground">
-		<button type="button" aria-label="Zoom out" class="h-11 w-11 text-lg hover:bg-edge" onclick={() => zoom(1 / 1.5)}>−</button>
+		<button type="button" class="h-11 px-3.5 font-mono text-xs hover:bg-edge" onclick={toNow}>now</button>
+		<button type="button" aria-label="Zoom out" class="h-11 w-11 border-l border-rail text-lg hover:bg-edge" onclick={() => zoom(1 / 1.5)}>−</button>
 		<button type="button" aria-label="Zoom in" class="h-11 w-11 border-l border-rail text-lg hover:bg-edge" onclick={() => zoom(1.5)}>+</button>
 	</div>
 </div>

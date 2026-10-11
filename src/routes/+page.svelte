@@ -2,9 +2,9 @@
 	import { goto, refreshAll } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import LaneView from '#lib/LaneView.svelte';
-	import { layout, type Cluster } from '#lib/layout.ts';
+	import { layout, nextInState, type Cluster } from '#lib/layout.ts';
 	import Mark from '#lib/Mark.svelte';
-	import type { GraphNode } from '#lib/model.ts';
+	import type { GraphNode, NodeState } from '#lib/model.ts';
 	import Panel from '#lib/Panel.svelte';
 	import Settings from '#lib/Settings.svelte';
 	import Welcome from '#lib/Welcome.svelte';
@@ -31,6 +31,24 @@
 		focusId = null;
 	}
 
+	const JUMPS = [
+		{ state: 'needs', tone: 'text-needs', text: (n: number) => `${n} ${n === 1 ? 'needs' : 'need'} you` },
+		{ state: 'working', tone: 'text-working', text: (n: number) => `${n} working` },
+		{ state: 'review', tone: 'text-review', text: (n: number) => `${n} ready for review` },
+		{ state: 'failed', tone: 'text-failed', text: (n: number) => `${n} failed` }
+	] as const;
+
+	let timeline = $state<LaneView>();
+
+	/** S-15: go to the next ticket in this state, after the one that is open, and open it. */
+	function jump(state: NodeState) {
+		const next = nextInState(view, state, focus?.id ?? null);
+		if (!next) return;
+		picked = [next.id];
+		focusId = null;
+		timeline?.reveal(next.id);
+	}
+
 	// After settings change: leave the demo if we were in it, and load again. Always fetch
 	// fresh: data loaded before the save would still say "not connected".
 	const reload = () => (graph.demo ? goto('/', { invalidateAll: true }) : refreshAll());
@@ -52,10 +70,20 @@
 			<span class="text-muted">updated {updated}</span>
 		</div>
 		<div class="flex flex-wrap gap-x-5 gap-y-1 font-medium">
-			<span class="text-needs">{view.counts.needs} {view.counts.needs === 1 ? 'needs' : 'need'} you</span>
-			<span class="text-working">{view.counts.working} working</span>
-			<span class="text-review">{view.counts.review} ready for review</span>
-			<span class="text-failed">{view.counts.failed} failed</span>
+			{#each JUMPS as j (j.state)}
+				{#if view.counts[j.state]}
+					<button
+						type="button"
+						title="Go to the next one"
+						class="-mx-1.5 -my-1 rounded px-1.5 py-1 underline-offset-4 hover:bg-edge hover:underline {j.tone}"
+						onclick={() => jump(j.state)}
+					>
+						{j.text(view.counts[j.state])}
+					</button>
+				{:else}
+					<span class="opacity-60 {j.tone}">{j.text(0)}</span>
+				{/if}
+			{/each}
 		</div>
 		<div class="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-muted">
 			<span class="inline-flex items-center gap-2"><Mark state="done" stage="ticket" small />ticket</span>
@@ -92,7 +120,7 @@
 
 	<main class="flex min-h-0 flex-1 flex-col md:flex-row">
 		{#if graph.lanes.length}
-			<LaneView {view} bind:pxPerDay {picked} onpick={pick} />
+			<LaneView bind:this={timeline} {view} bind:pxPerDay {picked} onpick={pick} />
 			<Panel nodes={pickedNodes} {focus} onfocus={(id) => (focusId = id)} />
 		{:else}
 			<div class="flex flex-1 items-center justify-center px-6 text-center">

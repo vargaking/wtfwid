@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AXIS_H, DAY, LANE_H, LINE_Y, MAX_ROWS, ROW_H, layout } from './layout';
+import { AXIS_H, DAY, LANE_H, LINE_Y, MAX_ROWS, ROW_H, layout, nextInState } from './layout';
 import type { Graph, GraphNode, Lane, NodeState } from './model';
 
 const NOW = Date.parse('2026-10-10T12:00:00.000Z');
@@ -166,5 +166,28 @@ describe('lines and branches', () => {
 		const empty = layout(graph([lane('p', [], { closed: true }), closed]), NOW, 160);
 		expect(empty.lanes[0].lineLeft).toBe(empty.lanes[1].lineLeft - 28);
 		expect(empty.lanes[0].lineRight).toBe(empty.lanes[1].lineRight);
+	});
+});
+
+describe('jumping', () => {
+	const g = graph([
+		lane('a', [node('a1', '2026-10-08T09:00:00.000Z', 'needs'), node('a2', '2026-10-09T09:00:00.000Z', 'working')]),
+		lane('b', [node('b1', '2026-10-07T09:00:00.000Z', 'needs')], { closed: false }),
+		lane('c', [node('c1', '2026-10-06T09:00:00.000Z')], { closed: true })
+	]);
+	const view = layout(g, NOW, 160);
+
+	it('S-15 goes through the tickets in a state from the top lane down, and wraps round', () => {
+		expect(nextInState(view, 'needs', null)?.id).toBe('a1');
+		expect(nextInState(view, 'needs', 'a1')?.id).toBe('b1');
+		expect(nextInState(view, 'needs', 'b1')?.id).toBe('a1');
+		// something else is open: start from the first
+		expect(nextInState(view, 'needs', 'a2')?.id).toBe('a1');
+		expect(nextInState(view, 'failed', null)).toBeNull();
+	});
+
+	it('S-15 skips lanes that are hidden', () => {
+		expect(nextInState(view, 'done', null)?.id).toBe('c1');
+		expect(nextInState(layout(g, NOW, 160, true), 'done', null)).toBeNull();
 	});
 });

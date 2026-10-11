@@ -283,3 +283,13 @@ export function layout(graph: Graph, now: number, pxPerDay: number, hideFinished
 		t0
 	};
 }
+
+/**
+ * The next node in `state` after the one with id `after`, top lane first, wrapping round (S-15).
+ * With no `after`, or one that is not in that state, the first.
+ */
+export function nextInState(view: Layout, state: NodeState, after: string | null): GraphNode | null {
+	const targets = view.lanes.flatMap((box) => box.lane.nodes).filter((n) => n.state === state);
+	if (!targets.length) return null;
+	return targets[(targets.findIndex((n) => n.id === after) + 1) % targets.length];
+}
