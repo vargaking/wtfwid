@@ -90,7 +90,8 @@ in `~/.wtfwid/sessions.json`, so they stay on the timeline after they are gone.
 ## What it does not do yet
 
 See [SPEC.md](SPEC.md). Every behaviour there has an ID and is marked *stated*, *assumed*
-or *open*; the tests name the statements they cover. The open ones:
+or *open*; the tests name the statements they cover. `pnpm spec` lists the statements no
+test names yet. The open ones:
 
 - planning chats on claude.ai as nodes
 - what a session decided and what it left open

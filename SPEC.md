@@ -10,12 +10,15 @@ Every statement has an ID and a mark:
 - **assumed** — a default picked while building. Review these first.
 - **open** — undecided. Nothing is built for it yet.
 
-Tests name the statements they cover (`S-…` in the test title).
+Tests name the statements they cover (`S-…` in the test title). `pnpm spec` runs the tests
+and lists every built statement that no test names, and every test that names a statement
+this file does not have. A statement that is checked some other way says so at its end:
+`{no test: why}`.
 
 ## Purpose
 
-- **S-01** stated — It is a personal tool, not a product. Maybe open source.
-- **S-02** stated — The view is visual. Lists and text are what it replaces.
+- **S-01** stated — It is a personal tool, not a product. Maybe open source. {no test: an intention, not a behaviour}
+- **S-02** stated — The view is visual. Lists and text are what it replaces. {no test: an intention, not a behaviour}
 - **S-03** stated — Version 1 only reads. It changes nothing in Linear, GitHub or Claude Code.
 
 ## The timeline
@@ -24,7 +27,7 @@ Tests name the statements they cover (`S-…` in the test title).
 - **S-11** stated — A feature is a horizontal line. A new feature can branch off an existing line.
 - **S-12** stated — Finished features stay in place on the timeline. There is no separate "closed" section.
 - **S-13** assumed — Finished lines are drawn faded, and one button hides them.
-- **S-14** assumed — The view opens scrolled to now. Zoom changes pixels per day (buttons, or ctrl/cmd + wheel).
+- **S-14** assumed — The view opens scrolled to now. Zoom changes pixels per day (buttons, or ctrl/cmd + wheel). {no test: scrolling and zooming, checked in a browser}
 
 ## What a line is
 
@@ -74,17 +77,17 @@ One state per ticket, the first of these that applies:
 - **S-61** assumed — GitHub: the latest 300 pull requests of each configured repository.
 - **S-62** assumed — Claude Code: `claude agents --json --all`, the supported way to read session state.
 - **S-63** stated — On first open, with no Linear key, the screen shows a short setup form, not made-up data. Assumed: invented demo data is still there for anyone who asks for it (`/?demo`), and says that it is demo data.
-- **S-66** assumed — When Linear is connected but nothing has been started yet, the screen says so instead of showing an empty timeline.
+- **S-66** assumed — When Linear is connected but nothing has been started yet, the screen says so instead of showing an empty timeline. {no test: one screen, checked in a browser}
 - **S-64** assumed — If one source fails, the others still load and the screen shows a warning.
-- **S-65** assumed — The screen reloads its data every 60 seconds.
+- **S-65** assumed — The screen reloads its data every 60 seconds. {no test: a timer, checked in a browser}
 
 ## Desktop app and settings
 
-- **S-70** stated — It runs as a desktop app (Electron). The same screen still runs in a browser with `pnpm dev`.
+- **S-70** stated — It runs as a desktop app (Electron). The same screen still runs in a browser with `pnpm dev`. {no test: checked by running the desktop app}
 - **S-71** stated — Keys and other settings are entered in a settings dialog. They are kept in `~/.wtfwid/settings.json`, readable only by the user.
 - **S-72** assumed — The desktop app encrypts keys with the operating system's keychain. Where there is no keychain, and in the browser version, keys are stored without encryption and the dialog says so. A key the desktop app encrypted shows as unreadable in the browser version.
 - **S-73** assumed — Saved settings win. Anything not saved falls back to `.env` and the environment.
 - **S-74** assumed — A saved key is never sent back to the screen. The dialog can replace it or remove it, not show it.
 - **S-75** assumed — Only you can reach it. It answers only requests addressed to this machine, and the desktop app also requires a one-off token that only its own window has.
-- **S-76** assumed — Links to Linear and GitHub open in your browser, not inside the app.
-- **S-77** assumed — The desktop app takes `PATH` from a login shell, so it finds `claude` and `gh` when started from a launcher.
+- **S-76** assumed — Links to Linear and GitHub open in your browser, not inside the app. {no test: checked by running the desktop app}
+- **S-77** assumed — The desktop app takes `PATH` from a login shell, so it finds `claude` and `gh` when started from a launcher. {no test: checked by running the desktop app}

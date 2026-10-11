@@ -131,6 +131,26 @@ describe('GitHub', () => {
 	});
 });
 
+describe('read only', () => {
+	it('S-03 only ever reads from Linear and GitHub', async () => {
+		const sent: { url: string; method: string; body: string }[] = [];
+		const fetcher = (async (url: string, init: RequestInit = {}) => {
+			sent.push({ url, method: init.method ?? 'GET', body: String(init.body ?? '') });
+			if (url.includes('linear.app')) return json({ data: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } } });
+			return json([]);
+		}) as typeof fetch;
+		await fetchIssues('key', 'ENG', fetcher);
+		await fetchPullRequests(['o/r'], 'tok', fetcher);
+
+		const [linear, github] = sent;
+		expect(sent).toHaveLength(2);
+		// GraphQL is always a POST; what matters is that the document is a query
+		expect(JSON.parse(linear.body).query.trimStart().startsWith('query ')).toBe(true);
+		expect(linear.body).not.toMatch(/\bmutation\b/);
+		expect(github).toMatchObject({ method: 'GET', body: '' });
+	});
+});
+
 describe('demo data', () => {
 	it('S-63 runs through the same graph builder and shows every state', () => {
 		const graph = buildGraph(demoSnapshot(Date.parse('2026-10-10T12:00:00.000Z')));
