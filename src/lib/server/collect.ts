@@ -27,12 +27,34 @@ export async function collect(now = Date.now(), demo = false): Promise<Snapshot>
 			return [];
 		});
 
+	const { linearKey, linearTeam, githubRepos } = cfg;
 	const [issues, prs, sessions] = await Promise.all([
-		guard('Linear', fetchIssues(cfg.linearKey, cfg.linearTeam)),
-		guard('GitHub', githubToken(cfg.githubToken).then((token) => fetchPullRequests(cfg.githubRepos, token))),
+		guard('Linear', recent(`linear ${linearKey} ${linearTeam}`, () => fetchIssues(linearKey, linearTeam))),
+		guard('GitHub', recent(`github ${cfg.githubToken} ${githubRepos}`, () => githubToken(cfg.githubToken).then((token) => fetchPullRequests(githubRepos, token)))),
 		guard('Claude Code', collectSessions(cfg.home))
 	]);
 	return { fetchedAt: new Date(now).toISOString(), demo: false, warnings, issues, prs, sessions };
+}
+
+/** How long an answer from Linear or GitHub is reused. Shorter than the minute between full refreshes (S-65). */
+const REUSE_MS = 45_000;
+const answers = new Map<string, { at: number; value: Promise<unknown[]> }>();
+
+/**
+ * Runs `job`, or hands back its last answer if that is recent. A session changing state
+ * makes the screen refresh at once (S-18); that should re-read the sessions, not ask
+ * Linear and GitHub again every few seconds. The key holds the settings, so changing
+ * them asks again. A failure is not kept.
+ */
+export function recent<T>(key: string, job: () => Promise<T[]>, now = Date.now()): Promise<T[]> {
+	for (const [k, old] of answers) if (now - old.at >= REUSE_MS) answers.delete(k);
+	const id = createHash('sha1').update(key).digest('hex');
+	const hit = answers.get(id);
+	if (hit) return hit.value as Promise<T[]>;
+	const value = job();
+	answers.set(id, { at: now, value });
+	value.catch(() => answers.get(id)?.value === value && answers.delete(id));
+	return value;
 }
 
 /**
@@ -45,7 +67,8 @@ export async function pulse(): Promise<string> {
 	let beat = '';
 	if (cfg.snapshotFile) beat = await stat(cfg.snapshotFile).then((s) => String(s.mtimeMs), () => '');
 	else if (cfg.linearKey) {
-		const sessions = await listSessions().catch(() => []);
+		// a failure is passed on: "no sessions" would read as every session having ended
+		const sessions = await listSessions();
 		beat = sessions.map((s) => `${s.id}:${s.state}:${s.waitingFor ?? ''}`).sort().join('|');
 	}
 	return createHash('sha1').update(beat).digest('hex').slice(0, 16);

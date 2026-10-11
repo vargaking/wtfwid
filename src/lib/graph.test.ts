@@ -98,6 +98,16 @@ describe('nodes', () => {
 	});
 });
 
+describe('the same thing twice', () => {
+	it('S-30 draws a node once when a source hands it back twice', () => {
+		// a repository listed twice, or a pull request that moved between two pages while they were read
+		const twice = snap({ issues: [issue(1), issue(1)], sessions: [session('a'), session('a')], prs: [pr(7), pr(7), pr(7, { repo: 'O/R' })] });
+		const ids = nodes(twice).map((n) => n.id);
+		expect(ids).toEqual(['ENG-1', 'session:a', 'pr:o/r#7']);
+		expect(new Set(ids).size).toBe(ids.length);
+	});
+});
+
 describe('which tickets appear', () => {
 	it('S-32 hides untouched backlog but shows it once a session exists', () => {
 		const backlog = issue(1, { startedAt: null, stateName: 'Backlog', stateType: 'backlog' });

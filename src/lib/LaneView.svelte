@@ -69,6 +69,8 @@
 		dragging = true;
 	}
 	function panMove(e: PointerEvent) {
+		// a button released outside the window never reports it: stop following the mouse
+		if (dragging && !(e.buttons & 1)) dragging = false;
 		if (!dragging) return;
 		viewport.scrollLeft -= e.movementX;
 		viewport.scrollTop -= e.movementY;
@@ -150,17 +152,18 @@
 							type="button"
 							aria-label={c.title}
 							title={c.title}
-							class="absolute flex h-6 min-w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
-							style="left: {c.x}px; top: {cy}px"
+							class="absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center {box.folded ? 'h-4 min-w-3.5' : 'h-6 min-w-6'}"
+							style="left: {c.markX}px; top: {cy}px"
 							onclick={() => onpick(c)}
 						>
 							<Mark state={c.state} stage={c.stage} count={c.nodes.length} selected={isPicked(c)} small={box.folded || (c.quiet && c.stage !== null)} />
 						</button>
 						{#if c.label}
+							<!-- starts clear of the selection ring around the mark -->
 							<div
 								aria-hidden="true"
-								class="s-{c.state} pointer-events-none absolute -translate-y-1/2 bg-ground px-1 font-mono text-[11px] leading-4 whitespace-nowrap"
-								style="left: {c.x + (c.stage === null ? 18 : c.quiet ? 8 : 12)}px; top: {cy}px; color: {c.quiet ? 'color-mix(in srgb, var(--color-muted) 70%, var(--color-ground))' : 'var(--tone)'}"
+								class="s-{c.state} pointer-events-none absolute -translate-y-1/2 bg-ground pr-1 font-mono text-[11px] leading-4 whitespace-nowrap"
+								style="left: {c.labelX}px; top: {cy}px; color: {c.quiet ? 'color-mix(in srgb, var(--color-muted) 70%, var(--color-ground))' : 'var(--tone)'}"
 							>
 								{c.label}
 							</div>
