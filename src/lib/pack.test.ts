@@ -81,6 +81,16 @@ describe('picking work up again', () => {
 		expect(pack).not.toContain('not on this machine');
 	});
 
+	it('S-57 packs the files the earlier session changed most', () => {
+		const files = Array.from({ length: 15 }, (_, i) => ({ path: `src/f${i}.ts`, edits: 20 - i, created: i === 1 }));
+		const story = { startedAt: null, endedAt: null, activeMinutes: 0, prompts: [], promptCount: 0, files, commands: 0, toolCalls: 1, added: 0, removed: 0, tokens: { input: 0, output: 0, cached: 0 }, costUSD: null, branches: [], recent: [] };
+		const pack = contextPack(ticket(), { [ID]: { ...note, story } });
+		expect(pack).toContain('Files it changed (the 12 it changed most, of 15):\n- src/f0.ts\n- src/f1.ts (new)\n- src/f2.ts');
+		expect(pack).toContain('- src/f11.ts');
+		expect(pack).not.toContain('src/f12.ts');
+		expect(contextPack(ticket(), { [ID]: { ...note, story: { ...story, files: files.slice(0, 2) } } })).toContain('Files it changed:\n- src/f0.ts\n- src/f1.ts (new)');
+	});
+
 	it('S-57 works for a session with no ticket', () => {
 		const loose = ticket({ id: `session:${ID}`, label: 'try-bun-runti…', title: 'try-bun-runtime', url: null, status: null, prs: [] });
 		const pack = contextPack(loose, { [ID]: { ...note, prs: [] } });

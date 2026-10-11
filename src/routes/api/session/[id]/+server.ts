@@ -13,5 +13,5 @@ export const GET: RequestHandler = async ({ params }) => {
 	if (!session) error(404, 'No such session.');
 	const file = await findTranscript(session.id, session.cwd);
 	if (!file) error(404, 'Its transcript is no longer on this machine.');
-	return json(await readNote(file));
+	return json(await readNote(file, session.cwd));
 };

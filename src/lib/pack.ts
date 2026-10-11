@@ -21,6 +21,8 @@ export function resumeCommand(session: Session): string | null {
 }
 
 const day = (iso: string) => new Date(iso).toISOString().slice(0, 10);
+/** At most this many of a session's files go into the context for a new one. */
+const FILES_PACKED = 12;
 const quoted = (text: string) => text.split('\n').map((line) => (line ? `> ${line}` : '>')).join('\n');
 
 /**
@@ -57,6 +59,12 @@ export function contextPack(node: GraphNode, notes: Record<string, SessionNote |
 		if (note.firstPrompt && note.firstPrompt !== note.lastPrompt) out.push('', 'It was started with:', quoted(note.firstPrompt));
 		if (note.lastPrompt) out.push('', 'The last thing I asked:', quoted(note.lastPrompt));
 		if (note.lastReply) out.push('', `Where it ended${note.at ? ` (${day(note.at)})` : ''}:`, quoted(note.lastReply));
+		// where the work happened: the files it changed most
+		const files = note.story?.files ?? [];
+		if (files.length) {
+			out.push('', `Files it changed${files.length > FILES_PACKED ? ` (the ${FILES_PACKED} it changed most, of ${files.length})` : ''}:`);
+			for (const f of files.slice(0, FILES_PACKED)) out.push(`- ${f.path}${f.created ? ' (new)' : ''}`);
+		}
 	}
 
 	out.push('', 'Read the ticket and the pull requests first. Then tell me where this stands and what is left, before changing anything.');

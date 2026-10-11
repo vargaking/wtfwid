@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { SessionNote } from '../model';
+import { storyReader } from './story';
 
 /**
  * Claude Code keeps one transcript per session: a .jsonl file with one entry per line.
@@ -154,17 +155,26 @@ export async function findTranscript(id: string, cwd: string, root = claudeHome(
 
 const cache = new Map<string, { stamp: string; note: SessionNote }>();
 
-/** Reads a transcript. Reads it again only when the file has changed. */
-export async function readNote(file: string): Promise<SessionNote> {
+/**
+ * Reads a transcript: the note, and the story of what the session did. One pass over the
+ * file for both. Reads it again only when the file has changed. `cwd` shortens the paths.
+ */
+export async function readNote(file: string, cwd = ''): Promise<SessionNote> {
 	const s = await stat(file);
-	const stamp = `${s.mtimeMs}:${s.size}`;
+	const stamp = `${s.mtimeMs}:${s.size}:${cwd}`;
 	const cached = cache.get(file);
 	if (cached?.stamp === stamp) return cached.note;
 
 	const reader = noteReader();
-	for await (const line of createInterface({ input: createReadStream(file, 'utf8'), crlfDelay: Infinity })) reader.add(line);
-	const note = reader.done();
+	const story = storyReader(cwd);
+	for await (const line of createInterface({ input: createReadStream(file, 'utf8'), crlfDelay: Infinity })) {
+		reader.add(line);
+		story.add(line);
+	}
+	const note = { ...reader.done(), story: story.done() };
 	cache.set(file, { stamp, note });
+	// keep the most recently read ones; a note is small but a year of sessions is many
+	if (cache.size > 300) cache.delete(cache.keys().next().value!);
 	return note;
 }
 

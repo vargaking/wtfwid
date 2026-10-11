@@ -47,6 +47,10 @@ export interface Session {
 	gone: boolean;
 	/** The git branch it was last on, read from its transcript. */
 	branch?: string | null;
+	/** Found as a transcript on disk, never seen listed by Claude Code (S-83). */
+	fromDisk?: boolean;
+	/** When it last wrote to its transcript. */
+	lastAt?: string | null;
 }
 
 /** What a session's transcript says it was doing (S-55). */
@@ -60,6 +64,8 @@ export interface SessionNote {
 	at: string | null;
 	/** Pull requests the session opened. */
 	prs: { repo: string; number: number; url: string }[];
+	/** What it did, when its transcript could be read that far. */
+	story?: SessionStory;
 }
 
 export interface Snapshot {
@@ -71,6 +77,38 @@ export interface Snapshot {
 	issues: Issue[];
 	prs: PullRequest[];
 	sessions: Session[];
+}
+
+/** One thing a session did, in a few words. */
+export interface Action {
+	at: string | null;
+	tool: string;
+	text: string;
+}
+
+/** What a session did, read from its transcript (S-84). */
+export interface SessionStory {
+	startedAt: string | null;
+	endedAt: string | null;
+	/** Minutes it was at it. Pauses of more than five minutes are left out. */
+	activeMinutes: number;
+	/** What you typed, in order: the first and the most recent ones when there were many. */
+	prompts: { at: string | null; text: string }[];
+	promptCount: number;
+	/** Files it changed with Claude Code's edit tools, most edited first. Changes made by a command are not seen. */
+	files: { path: string; edits: number; created: boolean }[];
+	commands: number;
+	toolCalls: number;
+	/** Lines written and replaced by those edits. A rough size, not a diff. */
+	added: number;
+	removed: number;
+	tokens: { input: number; output: number; cached: number };
+	/** What Claude Code says it cost, where it wrote that down. */
+	costUSD: number | null;
+	/** Git branches it was on, in order. */
+	branches: string[];
+	/** The last things it did. */
+	recent: Action[];
 }
 
 // --- what the screen draws -------------------------------------------------

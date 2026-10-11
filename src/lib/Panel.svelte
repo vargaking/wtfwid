@@ -88,6 +88,21 @@
 		return hours < 1 ? 'under 1 h' : hours < 24 ? `${Math.floor(hours)} h` : `${Math.floor(hours / 24)} d`;
 	}
 
+	/** A big number the short way: 1,996 stays, 570,329 is 570k, 1,324,765 is 1.3M. */
+	function compact(n: number): string {
+		if (n < 10_000) return n.toLocaleString('en');
+		if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
+		return `${(n / 1_000_000).toFixed(1)}M`;
+	}
+	function duration(minutes: number): string {
+		return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+	}
+	const count = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en')} ${n === 1 ? one : many}`;
+	/** How many of a session's files are listed before "show all". */
+	const FILES_LISTED = 5;
+	let allFiles = $state<Record<string, boolean>>({});
+	let allPrompts = $state<Record<string, boolean>>({});
+
 	function when(iso: string | null): string {
 		if (!iso) return '';
 		const d = new Date(iso);
@@ -154,12 +169,70 @@
 						{#if s.branch}
 							<div class="font-mono text-xs break-all text-muted">on {s.branch}</div>
 						{/if}
+						{#if note?.story && note.story.toolCalls}
+							<!-- S-84: what the session did, from its transcript -->
+							{@const story = note.story}
+							<div class="mt-2.5 font-mono text-[11px] tracking-[0.06em] text-muted uppercase">What it did</div>
+							<p class="mt-0.5 text-[13px] leading-snug">
+								{[
+									story.activeMinutes ? `${duration(story.activeMinutes)} at it` : '',
+									count(story.promptCount, 'prompt'),
+									count(story.commands, 'command'),
+									story.files.length ? count(story.files.length, 'file') : ''
+								]
+									.filter(Boolean)
+									.join(' · ')}
+							</p>
+							<p class="text-[13px] leading-snug text-muted">
+								{[
+									story.added || story.removed ? `about +${compact(story.added)} −${compact(story.removed)} lines` : '',
+									story.tokens.input + story.tokens.output ? `${compact(story.tokens.input + story.tokens.output)} tokens` : '',
+									story.costUSD !== null ? `$${story.costUSD.toFixed(2)}` : ''
+								]
+									.filter(Boolean)
+									.join(' · ')}
+							</p>
+							{#if story.files.length}
+								<ul class="mt-1.5 font-mono text-xs">
+									{#each allFiles[s.id] ? story.files : story.files.slice(0, FILES_LISTED) as f (f.path)}
+										<li class="flex items-baseline gap-2">
+											<span class="min-w-0 flex-1 truncate" style="direction: rtl; text-align: left" title={f.path}><bdi>{f.path}</bdi></span>
+											{#if f.created}<span class="flex-none text-review">new</span>{/if}
+											<span class="flex-none text-muted">×{f.edits}</span>
+										</li>
+									{/each}
+								</ul>
+								{#if story.files.length > FILES_LISTED}
+									<button type="button" class="-ml-2 min-h-9 rounded px-2 text-xs text-muted hover:text-ink" onclick={() => (allFiles[s.id] = !allFiles[s.id])}>
+										{allFiles[s.id] ? 'show fewer' : `show all ${story.files.length} files`}
+									</button>
+								{/if}
+							{/if}
+						{/if}
 						{#if note}
 							{#if note.firstPrompt && note.firstPrompt !== note.lastPrompt}
 								{@render said('Started with', note.firstPrompt, false)}
 							{/if}
 							{#if note.lastPrompt}
 								{@render said('You last asked', note.lastPrompt, false)}
+							{/if}
+							{#if note.story && note.story.promptCount > 2}
+								<button type="button" aria-expanded={!!allPrompts[s.id]} class="-ml-2 min-h-9 rounded px-2 text-xs text-muted hover:text-ink" onclick={() => (allPrompts[s.id] = !allPrompts[s.id])}>
+									{allPrompts[s.id] ? 'hide the prompts in between' : `show all ${note.story.promptCount} prompts`}
+								</button>
+								{#if allPrompts[s.id]}
+									<ol class="mt-1 flex flex-col gap-2 border-l-2 border-rail pl-2.5">
+										{#each note.story.prompts as p, i (i)}
+											<li class="text-[13px] leading-snug">
+												<span class="block font-mono text-[11px] text-muted">{when(p.at)}</span>
+												<span class="break-words whitespace-pre-line">{p.text}</span>
+											</li>
+										{/each}
+									</ol>
+									{#if note.story.promptCount > note.story.prompts.length}
+										<p class="mt-1 text-xs text-muted">The first and the latest {note.story.prompts.length - 1} of {note.story.promptCount}.</p>
+									{/if}
+								{/if}
 							{/if}
 							{#if note.lastReply}
 								{@render said(note.at ? `Claude last said · ${when(note.at)}` : 'Claude last said', note.lastReply, expanded[s.id])}
