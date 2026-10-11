@@ -141,6 +141,14 @@ function fit(node: GraphNode, chars: number): string | null {
 	return id.length <= max ? id : null;
 }
 
+/**
+ * Whether a node counts as being in a state, for the header (S-15). A session that ended
+ * without a ticket is "open" forever; it is history, not something left half done.
+ */
+function inState(node: GraphNode, state: NodeState): boolean {
+	return node.state === state && !(state === 'open' && quiet(node));
+}
+
 function describe(nodes: GraphNode[], unsorted: boolean): Pick<Cluster, 'label' | 'title' | 'quiet'> {
 	const isQuiet = nodes.every(quiet);
 	if (nodes.length > 1) {
@@ -294,7 +302,7 @@ export function layout(
 		ticks.push({ x: tx, label: labelled ? dayLabel(t) : null });
 	}
 
-	const count = (s: NodeState) => visible.reduce((sum, l) => sum + l.nodes.filter((n) => n.state === s).length, 0);
+	const count = (s: NodeState) => visible.reduce((sum, l) => sum + l.nodes.filter((n) => inState(n, s)).length, 0);
 
 	return {
 		width: nowX + 260,
@@ -314,7 +322,7 @@ export function layout(
  * With no `after`, or one that is not in that state, the first.
  */
 export function nextInState(view: Layout, state: NodeState, after: string | null): GraphNode | null {
-	const targets = view.lanes.flatMap((box) => box.lane.nodes).filter((n) => n.state === state);
+	const targets = view.lanes.flatMap((box) => box.lane.nodes).filter((n) => inState(n, state));
 	if (!targets.length) return null;
 	return targets[(targets.findIndex((n) => n.id === after) + 1) % targets.length];
 }
