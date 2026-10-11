@@ -1,12 +1,24 @@
 import { mostUrgent, type Graph, type GraphNode, type Lane, type NodeState, type Stage } from './model';
 
 export const DAY = 86_400_000;
-export const LANE_H = 96;
-export const LINE_Y = 52;
+/** Height of a lane with one row of nodes. */
+export const LANE_H = 78;
+/** Centre of a lane's first row, where its line runs. */
+export const LINE_Y = 47;
 export const AXIS_H = 40;
+/** Height of each further row. */
+export const ROW_H = 26;
+/** Tickets started close together stack into this many rows before they merge (S-35). */
+export const MAX_ROWS = 5;
 const PAD = 48;
-/** Nodes closer than this merge into a cluster (S-35). Also the room one label needs. */
-const GAP = 68;
+/** Room a node needs in its row: the mark, and a little air. */
+const NODE_W = 24;
+/** Width of one character of a node's label (11px IBM Plex Mono). */
+const CHAR_W = 6.7;
+/** Longest label drawn next to a node, in characters. */
+const LABEL_MAX = 34;
+/** From a node's centre to where its label starts. */
+const LABEL_GAP = 16;
 /** Room a date label on the axis needs. */
 const LABEL_W = 80;
 /** How far left of a milestone's first node its branch leaves the trunk. */
@@ -15,16 +27,26 @@ const ELBOW = 28;
 export interface Cluster {
 	key: string;
 	x: number;
+	/** 0 is on the lane's line; further rows hang below it. */
+	row: number;
 	nodes: GraphNode[];
 	state: NodeState;
 	/** null for a cluster of several nodes */
 	stage: Stage | null;
-	label: string;
+	/** Finished work: drawn as a small mark, with a dimmer label (S-36). */
+	quiet: boolean;
+	/** Text drawn to the right of the node. Finished work only has one where there is room. */
+	label: string | null;
+	/** Full description, for the tooltip and screen readers. */
+	title: string;
+	/** Right edge of what is drawn, label included. */
+	right: number;
 }
 
 export interface LaneBox {
 	lane: Lane;
 	y: number;
+	height: number;
 	clusters: Cluster[];
 	lineLeft: number;
 	lineRight: number;
@@ -80,23 +102,102 @@ export function tOf(x: number, t0: number, pxPerDay: number): number {
 	return t0 + ((x - PAD) / pxPerDay) * DAY;
 }
 
-function clusters(lane: Lane, x: (iso: string) => number): Cluster[] {
-	// A cluster sits at its first node, so two clusters are never closer than GAP.
-	const groups: { first: number; nodes: GraphNode[] }[] = [];
-	for (const node of lane.nodes) {
-		const nx = x(node.at);
-		const cur = groups[groups.length - 1];
-		if (cur && nx - cur.first < GAP) cur.nodes.push(node);
-		else groups.push({ first: nx, nodes: [node] });
+const STATE_WORDS: Record<NodeState, string> = {
+	needs: 'needs you',
+	failed: 'failed',
+	working: 'working',
+	review: 'ready for review',
+	open: 'open',
+	done: 'done'
+};
+
+/** History is drawn small and dim; what is still in play is drawn full size, with its name (S-36). */
+function quiet(node: GraphNode): boolean {
+	if (node.state === 'done') return true;
+	// a session or pull request with no ticket, that is over
+	return node.status === null && node.state === 'open' && node.sessions.every((s) => s.gone) && !node.prs.length;
+}
+
+/** A node's short name, e.g. "ENG-12", and its full one, "ENG-12 · Fix login". */
+function names(node: GraphNode): { id: string; name: string } {
+	// a session's label is its name cut short, so the name alone says everything
+	const repeats = node.title.startsWith(node.label.replace(/…$/, ''));
+	return { id: node.label, name: repeats ? node.title : `${node.label} · ${node.title}` };
+}
+
+/** The longest form of a node's name that fits in `chars` characters, or null when not even its id does. */
+function fit(node: GraphNode, chars: number): string | null {
+	const { id, name } = names(node);
+	const max = Math.min(chars, LABEL_MAX);
+	if (name.length <= max) return name;
+	if (max >= id.length + 10) return name.slice(0, max - 1).trimEnd() + '…';
+	return id.length <= max ? id : null;
+}
+
+function describe(nodes: GraphNode[], unsorted: boolean): Pick<Cluster, 'label' | 'title' | 'quiet'> {
+	const isQuiet = nodes.every(quiet);
+	if (nodes.length > 1) {
+		const state = mostUrgent(nodes.map((n) => n.state));
+		const what = `${nodes.length} ${unsorted ? 'items' : 'tickets'}`;
+		return { quiet: isQuiet, label: isQuiet ? null : what, title: `${what}, most urgent: ${STATE_WORDS[state]}` };
 	}
-	return groups.map((g) => ({
-		key: g.nodes[0].id,
-		x: Math.round(g.first),
-		nodes: g.nodes,
-		state: mostUrgent(g.nodes.map((n) => n.state)),
-		stage: g.nodes.length === 1 ? g.nodes[0].stage : null,
-		label: g.nodes.length === 1 ? g.nodes[0].label : `${g.nodes.length} ${lane.kind === 'unsorted' ? 'items' : 'tickets'}`
-	}));
+	const [node] = nodes;
+	return { quiet: isQuiet, label: isQuiet ? null : fit(node, LABEL_MAX), title: `${names(node).name}, ${STATE_WORDS[node.state]}` };
+}
+
+/**
+ * Places a lane's nodes (S-35). Each goes in the first row with room for it, so tickets
+ * started close together stack below the line in the order they started. Only when every
+ * row is taken does a node merge into the item just before it, which becomes a cluster.
+ */
+function place(lane: Lane, x: (iso: string) => number, maxRows: number): Cluster[] {
+	const unsorted = lane.kind === 'unsorted';
+	const extent = (nodes: GraphNode[], at: number) => {
+		const d = describe(nodes, unsorted);
+		const mark = nodes.length > 1 ? NODE_W + 12 : NODE_W; // a cluster's counted pill is wider
+		return { ...d, right: at + mark / 2 + (d.label ? 4 + d.label.length * CHAR_W : 0) };
+	};
+	type Item = { x: number; row: number; nodes: GraphNode[]; right: number };
+	const items: Item[] = [];
+	const rows: Item[][] = [];
+	for (const node of lane.nodes) {
+		const nx = Math.round(x(node.at));
+		let row = 0;
+		while (row < maxRows && rows[row] && nx - NODE_W / 2 < rows[row].at(-1)!.right + 4) row++;
+		if (row < maxRows) {
+			const item = { x: nx, row, nodes: [node], right: extent([node], nx).right };
+			(rows[row] ??= []).push(item);
+			items.push(item);
+		} else {
+			const nearest = rows.map((r) => r.at(-1)!).reduce((a, b) => (b.x > a.x ? b : a));
+			nearest.nodes.push(node);
+			nearest.right = extent(nearest.nodes, nearest.x).right;
+		}
+	}
+
+	// S-36: a finished ticket gets its name too, as far as the gap to its right neighbour allows.
+	const room = new Map<Item, number>();
+	for (const row of rows) {
+		row.forEach((item, i) => {
+			const next = row[i + 1];
+			room.set(item, next ? Math.floor((next.x - NODE_W / 2 - 4 - item.x - LABEL_GAP) / CHAR_W) : LABEL_MAX);
+		});
+	}
+
+	return items.map((g) => {
+		const d = extent(g.nodes, g.x);
+		const label = d.label ?? (g.nodes.length === 1 ? fit(g.nodes[0], room.get(g)!) : null);
+		return {
+			key: g.nodes[0].id,
+			x: g.x,
+			row: g.row,
+			nodes: g.nodes,
+			state: mostUrgent(g.nodes.map((n) => n.state)),
+			stage: g.nodes.length === 1 ? g.nodes[0].stage : null,
+			...d,
+			label
+		};
+	});
 }
 
 function statusText(lane: Lane): { status: string; urgent: boolean } {
@@ -111,7 +212,7 @@ function statusText(lane: Lane): { status: string; urgent: boolean } {
 	return { status: parts.join(' · ') || 'nothing waiting', urgent: n('needs') > 0 };
 }
 
-export function layout(graph: Graph, now: number, pxPerDay: number, hideFinished = false): Layout {
+export function layout(graph: Graph, now: number, pxPerDay: number, hideFinished = false, maxRows = MAX_ROWS): Layout {
 	const all = graph.lanes.flatMap((l) => l.nodes);
 	const first = all.length ? Math.min(...all.map((n) => Date.parse(n.at))) : now - 7 * DAY;
 	const t0 = startOfDay(first) - DAY;
@@ -120,19 +221,23 @@ export function layout(graph: Graph, now: number, pxPerDay: number, hideFinished
 
 	const visible = graph.lanes.filter((l) => !(hideFinished && l.closed)); // S-13
 	const boxes = new Map<string, LaneBox>();
-	const lanes = visible.map((lane, row) => {
-		const cs = clusters(lane, x);
+	let y = AXIS_H;
+	const lanes = visible.map((lane) => {
+		const cs = place(lane, x, maxRows);
 		const xs = lane.nodes.map((n) => x(n.at));
+		const rows = Math.max(1, ...cs.map((c) => c.row + 1));
 		// A trunk with no tickets of its own gets its extent from its branches, below.
 		const box: LaneBox = {
 			lane,
-			y: AXIS_H + row * LANE_H,
+			y,
+			height: LANE_H + (rows - 1) * ROW_H,
 			clusters: cs,
 			lineLeft: Math.round(Math.min(...xs, Infinity)),
 			lineRight: lane.closed ? Math.round(Math.max(...xs, -Infinity)) : nowX,
 			...statusText(lane)
 		};
 		boxes.set(lane.id, box);
+		y += box.height;
 		return box;
 	});
 
@@ -168,7 +273,7 @@ export function layout(graph: Graph, now: number, pxPerDay: number, hideFinished
 
 	return {
 		width: nowX + 260,
-		height: AXIS_H + lanes.length * LANE_H + 32,
+		height: y + 32,
 		nowX,
 		nowLabel,
 		lanes,

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { LANE_H, LINE_Y, tOf, xOf, type Cluster, type Layout } from './layout';
+	import { LINE_Y, ROW_H, tOf, xOf, type Cluster, type Layout } from './layout';
 	import Mark from './Mark.svelte';
 
 	interface Props {
@@ -14,7 +14,6 @@
 
 	const MIN_ZOOM = 12;
 	const MAX_ZOOM = 1600;
-	const STATE_WORDS = { needs: 'needs you', failed: 'failed', working: 'working', review: 'ready for review', open: 'open', done: 'done' };
 
 	let viewport: HTMLElement;
 	let dragging = $state(false);
@@ -55,10 +54,6 @@
 	}
 
 	const isPicked = (c: Cluster) => c.nodes.some((n) => picked.includes(n.id));
-	const describe = (c: Cluster) =>
-		c.nodes.length === 1
-			? `${c.nodes[0].label}: ${c.nodes[0].title}, ${STATE_WORDS[c.state]}`
-			: `${c.label}, most urgent: ${STATE_WORDS[c.state]}`;
 </script>
 
 <div class="relative min-h-80 min-w-0 flex-1">
@@ -97,7 +92,7 @@
 			</div>
 
 			{#each view.lanes as box (box.lane.id)}
-				<div class="relative z-10" style="height: {LANE_H}px">
+				<div class="relative z-10" style="height: {box.height}px">
 					<div
 						aria-hidden="true"
 						class="absolute h-0.5 {box.lane.closed ? 'bg-rail-dim' : 'bg-rail'}"
@@ -115,22 +110,26 @@
 					</div>
 
 					{#each box.clusters as c (c.key)}
+						{@const cy = LINE_Y + c.row * ROW_H}
 						<button
 							type="button"
-							aria-label={describe(c)}
-							class="absolute flex h-11 min-w-11 -translate-x-1/2 items-center justify-center"
-							style="left: {c.x}px; top: {LINE_Y - 22}px"
+							aria-label={c.title}
+							title={c.title}
+							class="absolute flex h-6 min-w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center"
+							style="left: {c.x}px; top: {cy}px"
 							onclick={() => onpick(c)}
 						>
-							<Mark state={c.state} stage={c.stage} count={c.nodes.length} selected={isPicked(c)} />
+							<Mark state={c.state} stage={c.stage} count={c.nodes.length} selected={isPicked(c)} small={c.quiet && c.stage !== null} />
 						</button>
-						<div
-							aria-hidden="true"
-							class="s-{c.state} pointer-events-none absolute -translate-x-1/2 font-mono text-[11px] whitespace-nowrap"
-							style="left: {c.x}px; top: {LINE_Y + 22}px; color: var(--tone)"
-						>
-							{c.label}
-						</div>
+						{#if c.label}
+							<div
+								aria-hidden="true"
+								class="s-{c.state} pointer-events-none absolute -translate-y-1/2 bg-ground px-1 font-mono text-[11px] leading-4 whitespace-nowrap"
+								style="left: {c.x + (c.stage === null ? 18 : c.quiet ? 8 : 12)}px; top: {cy}px; color: {c.quiet ? 'color-mix(in srgb, var(--color-muted) 70%, var(--color-ground))' : 'var(--tone)'}"
+							>
+								{c.label}
+							</div>
+						{/if}
 					{/each}
 				</div>
 			{/each}

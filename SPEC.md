@@ -44,7 +44,8 @@ three weeks, grouped into projects and project milestones, no sub-issues.
 - **S-32** assumed — A ticket appears once it has been started or completed, or has a session or pull request. Untouched backlog is not shown.
 - **S-33** assumed — Cancelled and duplicate issues are not shown.
 - **S-34** assumed — A node sits at the time work began: issue `startedAt`, else first session, else first pull request, else completion.
-- **S-35** assumed — Nodes that would overlap at the current zoom merge into one counted cluster, coloured by its most urgent member. Zooming in separates them.
+- **S-35** assumed — Tickets started close together stack in rows under their line, in the order they started, and the lane grows to fit. Reason: in the real data tickets start in bursts, so on one row most of them merged into counted clusters at every zoom. Only when all five rows are taken do tickets merge into a counted cluster, coloured by its most urgent member.
+- **S-36** assumed — A ticket still in play is drawn full size with its ID and title next to it. A finished one is a small mark, with its ID or title in a dimmer colour only where there is room before the next ticket. Every node has its full name as a tooltip.
 
 ## State
 

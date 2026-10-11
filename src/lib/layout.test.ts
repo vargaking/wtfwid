@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AXIS_H, LANE_H, LINE_Y, layout } from './layout';
+import { AXIS_H, DAY, LANE_H, LINE_Y, MAX_ROWS, ROW_H, layout } from './layout';
 import type { Graph, GraphNode, Lane, NodeState } from './model';
 
 const NOW = Date.parse('2026-10-10T12:00:00.000Z');
@@ -30,30 +30,83 @@ const lane = (id: string, nodes: GraphNode[], over: Partial<Lane> = {}): Lane =>
 });
 const graph = (lanes: Lane[]): Graph => ({ fetchedAt: new Date(NOW).toISOString(), demo: false, setup: false, warnings: [], lanes });
 
-describe('clusters', () => {
+const hourly = (count: number, state: NodeState = 'done') =>
+	Array.from({ length: count }, (_, i) => node(`n${i}`, new Date(NOW - i * 3_600_000).toISOString(), state)).reverse();
+
+describe('rows', () => {
 	const g = graph([
 		lane('a', [
 			node('n1', '2026-10-08T09:00:00.000Z'),
 			node('n2', '2026-10-08T11:00:00.000Z', 'needs'),
 			node('n3', '2026-10-09T09:00:00.000Z')
-		])
+		]),
+		lane('b', [node('m1', '2026-10-08T09:00:00.000Z')])
 	]);
 
-	it('S-35 merges nodes that would overlap and colours the cluster by its most urgent member', () => {
-		const [first, second] = layout(g, NOW, 160).lanes[0].clusters;
-		expect(first.nodes.map((n) => n.id)).toEqual(['n1', 'n2']);
-		expect(first).toMatchObject({ state: 'needs', stage: null, label: '2 tickets' });
-		expect(second).toMatchObject({ state: 'done', stage: 'ticket', label: 'n3' });
+	it('S-35 stacks tickets started close together instead of merging them', () => {
+		const [a, b] = layout(g, NOW, 160).lanes;
+		expect(a.clusters.map((c) => [c.nodes[0].id, c.row])).toEqual([['n1', 0], ['n2', 1], ['n3', 0]]);
+		expect(a.clusters.every((c) => c.nodes.length === 1)).toBe(true);
+		// the lane grows by one row, and the next lane moves down with it
+		expect(a.height).toBe(LANE_H + ROW_H);
+		expect(b.y).toBe(AXIS_H + LANE_H + ROW_H);
 	});
 
-	it('S-35 separates them when zoomed in', () => {
-		expect(layout(g, NOW, 1600).lanes[0].clusters).toHaveLength(3);
+	it('S-35 puts them back on one row when zoomed in', () => {
+		const [a] = layout(g, NOW, 1600).lanes;
+		expect(a.clusters.map((c) => c.row)).toEqual([0, 0, 0]);
+		expect(a.height).toBe(LANE_H);
 	});
 
-	it('S-35 never puts two clusters closer than one label', () => {
-		const busy = graph([lane('a', Array.from({ length: 40 }, (_, i) => node(`n${i}`, new Date(NOW - i * 3_600_000).toISOString())).reverse())]);
-		const xs = layout(busy, NOW, 160).lanes[0].clusters.map((c) => c.x);
-		for (let i = 1; i < xs.length; i++) expect(xs[i] - xs[i - 1]).toBeGreaterThanOrEqual(68);
+	it('S-35 merges into a counted cluster only when every row is taken', () => {
+		const busy = graph([lane('a', [...hourly(39), node('late', new Date(NOW).toISOString(), 'needs')])]);
+		const { clusters } = layout(busy, NOW, 12).lanes[0];
+		expect(Math.max(...clusters.map((c) => c.row))).toBe(MAX_ROWS - 1);
+		expect(clusters.reduce((n, c) => n + c.nodes.length, 0)).toBe(40);
+		const merged = clusters.find((c) => c.nodes.some((n) => n.id === 'late'))!;
+		expect(merged).toMatchObject({ state: 'needs', stage: null, label: `${merged.nodes.length} tickets` });
+	});
+
+	it('S-35 never draws two things over each other', () => {
+		for (const pxPerDay of [12, 160, 600]) {
+			const { clusters } = layout(graph([lane('a', hourly(40, 'working'))]), NOW, pxPerDay).lanes[0];
+			for (const row of new Set(clusters.map((c) => c.row))) {
+				const inRow = clusters.filter((c) => c.row === row);
+				for (let i = 1; i < inRow.length; i++) expect(inRow[i].x - 12).toBeGreaterThanOrEqual(inRow[i - 1].right);
+			}
+		}
+	});
+});
+
+describe('labels', () => {
+	const titled = (id: string, at: string, state: NodeState) => ({ ...node(id, at, state), title: 'Reconnect after a network change' });
+
+	it('S-36 names work in play in full, whatever the zoom', () => {
+		const g = graph([lane('a', [titled('ENG-1', '2026-10-08T09:00:00.000Z', 'working'), titled('ENG-2', '2026-10-08T10:00:00.000Z', 'needs')])]);
+		const { clusters } = layout(g, NOW, 12).lanes[0];
+		expect(clusters.map((c) => [c.label, c.quiet, c.row])).toEqual([
+			['ENG-1 · Reconnect after a network…', false, 0],
+			['ENG-2 · Reconnect after a network…', false, 1]
+		]);
+		expect(clusters[0].title).toBe('ENG-1 · Reconnect after a network change, working');
+	});
+
+	it('S-36 names finished work only as far as there is room', () => {
+		const days = (gap: number) =>
+			graph([lane('a', [titled('ENG-1', '2026-10-08T09:00:00.000Z', 'done'), titled('ENG-2', new Date(Date.parse('2026-10-08T09:00:00.000Z') + gap * DAY).toISOString(), 'done')])]);
+		const first = (gap: number) => layout(days(gap), NOW, 160).lanes[0].clusters[0];
+		expect(first(0.2)).toMatchObject({ quiet: true, row: 0, label: null }); // 32px: no room
+		expect(first(0.5)).toMatchObject({ label: 'ENG-1' }); // 80px: the id fits
+		expect(first(1)).toMatchObject({ label: 'ENG-1 · Reconnect…' });
+		expect(first(3)).toMatchObject({ label: 'ENG-1 · Reconnect after a network…' });
+		// nothing follows the last one, so it has all the room it wants
+		expect(layout(days(0.2), NOW, 160).lanes[0].clusters[1].label).toBe('ENG-2 · Reconnect after a network…');
+	});
+
+	it('S-36 does not repeat a session name that is its own label', () => {
+		const session = { ...node('s1', '2026-10-09T09:00:00.000Z', 'working'), label: 'try-bun-runti…', title: 'try-bun-runtime', status: null };
+		const [c] = layout(graph([lane('unsorted', [session], { kind: 'unsorted' })]), NOW, 160).lanes[0].clusters;
+		expect(c.label).toBe('try-bun-runtime');
 	});
 });
 
