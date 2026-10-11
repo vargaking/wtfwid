@@ -18,7 +18,7 @@
 <dialog
 	bind:this={dialog}
 	aria-labelledby="settings-title"
-	class="m-auto w-[min(34rem,calc(100vw-2rem))] rounded-lg border border-rail bg-ground p-0 text-ink backdrop:bg-black/60"
+	class="m-auto max-h-[calc(100vh-2rem)] w-[min(34rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-rail bg-ground p-0 text-ink backdrop:bg-black/60"
 	onclose={() => (open = false)}
 >
 	<div class="p-6">

@@ -35,7 +35,7 @@ three weeks, grouped into projects and project milestones, no sub-issues.
 - **S-21** assumed — Each project milestone is a line that branches off its project's trunk at the time of its first activity.
 - **S-22** assumed — Issues with no project go on a "No project" trunk.
 - **S-23** assumed — Within a project, milestone lines are ordered newest first under the trunk, so branch connectors never cross another line.
-- **S-24** open — A branch that starts from one specific session or ticket (stated: "from a voice chat line we branch off LiveKit setup, screen share"). Linear has no field for this today. Candidates: sub-issues, or an issue relation.
+- **S-24** open — A branch that starts from one specific session or ticket (stated: "from a voice chat line we branch off LiveKit setup, screen share"). Linear has no field for this today. Candidates: sub-issues, or an issue relation. Checked on real data: none of the 250 most recent issues has a parent, so sub-issues give nothing to draw. Another candidate: a session that moves from one ticket's branch to another's; "Check connections" (S-79) counts how many sessions do.
 
 ## What a node is
 
@@ -90,3 +90,4 @@ One state per ticket, the first of these that applies:
 - **S-75** assumed — Only you can reach it. It answers only requests addressed to this machine, and the desktop app also requires a one-off token that only its own window has.
 - **S-76** assumed — Links to Linear and GitHub open in your browser, not inside the app.
 - **S-77** assumed — The desktop app takes `PATH` from a login shell, so it finds `claude` and `gh` when started from a launcher.
+- **S-79** assumed — Settings has a "Check connections" button. It tries each source for real with the saved settings and says what came back: how many Linear issues, how many pull requests per repository, how many Claude Code sessions, whether their transcripts can be read, and how many sessions end up on a ticket. It shows counts only, never a title or what a session said, so the result can be pasted anywhere.

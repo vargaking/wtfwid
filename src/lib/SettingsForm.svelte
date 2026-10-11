@@ -53,6 +53,40 @@
 		onsaved();
 	}
 
+	// S-79: try every source with what is saved, and show what came back
+	interface Check {
+		name: string;
+		ok: boolean | null;
+		summary: string;
+		details: string[];
+	}
+	let checking = $state(false);
+	let report = $state<{ checks: Check[]; text: string } | null>(null);
+	let reportNote = $state('');
+
+	async function check() {
+		checking = true;
+		reportNote = '';
+		const res = await fetch('/api/doctor').catch(() => null);
+		checking = false;
+		if (!res?.ok) {
+			reportNote = 'Could not run the check.';
+			return;
+		}
+		report = await res.json();
+	}
+
+	async function copyReport() {
+		try {
+			await navigator.clipboard.writeText(report!.text);
+			reportNote = 'Copied.';
+		} catch {
+			reportNote = 'Could not copy. Select the text below instead.';
+		}
+	}
+
+	const VERDICT = { true: ['WORKS', 'text-review'], false: ['FAILS', 'text-failed'], null: ['NOT SET', 'text-muted'] } as const;
+
 	const HINT: Record<Secret, Record<SecretState, string>> = {
 		linearKey: {
 			saved: 'A key is saved. Type a new one to replace it.',
@@ -121,6 +155,46 @@
 			{current.storage === 'keychain' ? 'Keys are encrypted with your system keychain and kept in' : 'Keys are kept without encryption in'}
 			<span class="font-mono break-all">{current.file}</span>.
 		</p>
+	{/if}
+
+	{#if !first}
+		<div class="border-t border-edge pt-4">
+			<div class="flex items-center justify-between gap-4">
+				<div>
+					<div class="font-medium">Check connections</div>
+					<p class="mt-0.5 text-[13px] text-muted">Tries each source with the settings as saved. Shows counts only, never titles or what a session said.</p>
+				</div>
+				<button type="button" class="quiet flex-none" disabled={checking} onclick={check}>{checking ? 'Checking…' : 'Check'}</button>
+			</div>
+			{#if report}
+				<ul class="mt-4 flex flex-col gap-3" aria-live="polite">
+					{#each report.checks as c (c.name)}
+						{@const [word, tone] = VERDICT[`${c.ok}`]}
+						<li>
+							<div class="flex items-baseline gap-2.5">
+								<span class="w-16 flex-none font-mono text-xs {tone}">{word}</span>
+								<span class="font-medium">{c.name}</span>
+							</div>
+							<div class="ml-[4.625rem] text-[13px]">
+								<p>{c.summary}</p>
+								{#each c.details as d (d)}
+									<p class="text-muted">{d}</p>
+								{/each}
+							</div>
+						</li>
+					{/each}
+				</ul>
+				<div class="mt-3 flex items-center gap-3">
+					<button type="button" class="quiet" onclick={copyReport}>Copy as text</button>
+					<span class="text-[13px] text-muted" role="status">{reportNote}</span>
+				</div>
+				{#if reportNote.startsWith('Could not copy')}
+					<textarea id="settings-report" readonly rows="8" class="mt-2 block w-full rounded-md border border-rail bg-ground p-2 font-mono text-xs text-muted">{report.text}</textarea>
+				{/if}
+			{:else if reportNote}
+				<p class="mt-2 text-[13px] text-failed" role="alert">{reportNote}</p>
+			{/if}
+		</div>
 	{/if}
 
 	{#if error}
