@@ -29,6 +29,8 @@ type Entry = {
 	isSidechain?: boolean;
 	isMeta?: boolean;
 	isCompactSummary?: boolean;
+	/** Who a user entry came from. Absent in older transcripts. */
+	origin?: { kind?: string };
 	timestamp?: string;
 	message?: { content?: string | Block[] };
 	lastPrompt?: string;
@@ -48,15 +50,38 @@ function textOf(entry: Entry): string {
 		.join('\n\n');
 }
 
+/**
+ * Text that Claude Code put into a message itself arrives as whole elements at its start:
+ * a reminder, a command, a notification. This takes those off and leaves what was typed.
+ * A prompt that merely begins with "<" ("<div> does not center") has no matching close and stays.
+ */
+function withoutInjected(text: string): string {
+	let rest = text.trimStart();
+	for (;;) {
+		const open = /^<([a-zA-Z][\w-]*)(?:\s[^>]*)?(\/?)>/.exec(rest);
+		if (!open) return rest.trim();
+		if (open[2]) rest = rest.slice(open[0].length).trimStart();
+		else {
+			const close = rest.indexOf(`</${open[1]}>`, open[0].length);
+			if (close < 0) return rest.trim();
+			rest = rest.slice(close + open[1].length + 3).trimStart();
+		}
+	}
+}
+
+/** What the person typed in a user message, or '' when all of it was put there by Claude Code. */
+function typedText(entry: Entry): string {
+	const content = entry.message?.content;
+	const blocks = typeof content === 'string' ? [content] : Array.isArray(content) ? content.filter((b) => b?.type === 'text' && typeof b.text === 'string').map((b) => b.text as string) : [];
+	return blocks.map(withoutInjected).filter(Boolean).join('\n\n');
+}
+
 /** A branch name worth showing: not empty, and not a detached HEAD. */
 const branchOf = (value: unknown) => (typeof value === 'string' && value && value !== 'HEAD' ? value : null);
 
 /** Takes a transcript one line at a time, so a long one never has to be in memory at once. */
 export function noteReader() {
 	const note: SessionNote = { firstPrompt: null, lastPrompt: null, lastReply: null, at: null, prs: [] };
-	/** The last thing typed, for transcripts that carry no "last-prompt" entry. */
-	let typed: string | null = null;
-	let marked = false;
 
 	return {
 		add(line: string) {
@@ -81,10 +106,8 @@ export function noteReader() {
 				if (typeof entry.prUrl !== 'string' || typeof entry.prNumber !== 'number' || note.prs.some((p) => p.url === entry.prUrl)) return;
 				note.prs.push({ repo: String(entry.prRepository ?? ''), number: entry.prNumber, url: entry.prUrl });
 			} else if (entry.type === 'last-prompt') {
-				if (typeof entry.lastPrompt === 'string' && entry.lastPrompt.trim()) {
-					note.lastPrompt = clip(entry.lastPrompt, PROMPT_MAX);
-					marked = true;
-				}
+				// Claude Code writes this a few entries after the prompt itself; whichever came last in the file stands
+				if (typeof entry.lastPrompt === 'string' && entry.lastPrompt.trim()) note.lastPrompt = clip(entry.lastPrompt, PROMPT_MAX);
 			} else if (entry.type === 'assistant') {
 				const text = textOf(entry);
 				if (!text.trim()) return;
@@ -92,15 +115,14 @@ export function noteReader() {
 				note.at = entry.timestamp ?? note.at;
 			} else if (entry.type === 'user') {
 				if (entry.isMeta || entry.isCompactSummary) return;
-				const text = textOf(entry).trim();
-				// Text that starts with a tag was put there by Claude Code (a command, a reminder), not typed.
-				if (!text || text.startsWith('<')) return;
-				typed = clip(text, PROMPT_MAX);
-				note.firstPrompt ??= typed;
+				if (entry.origin?.kind && entry.origin.kind !== 'human') return; // a notification, not a person
+				const text = typedText(entry);
+				if (!text) return;
+				note.lastPrompt = clip(text, PROMPT_MAX);
+				note.firstPrompt ??= note.lastPrompt;
 			}
 		},
 		done(): SessionNote {
-			if (!marked) note.lastPrompt = typed;
 			return note;
 		}
 	};
@@ -112,19 +134,22 @@ export function noteFrom(lines: Iterable<string>): SessionNote {
 	return reader.done();
 }
 
-/** The transcript of a session, or null when it is not on this machine (any more). */
+/**
+ * The transcript of a session, or null when it is not on this machine (any more).
+ * A session that changed folder has one file per folder; the one written to last is its current one.
+ */
 export async function findTranscript(id: string, cwd: string, root = claudeHome()): Promise<string | null> {
 	if (!/^[\w-]{6,80}$/.test(id)) return null;
 	const projects = join(root, 'projects');
-	const exists = (file: string) => stat(file).then((s) => (s.isFile() ? file : null), () => null);
 	// Claude Code names the folder after the working directory, with everything but letters and digits as "-".
-	const direct = await exists(join(projects, cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${id}.jsonl`));
-	if (direct) return direct;
-	for (const dir of await readdir(projects).catch(() => [] as string[])) {
-		const hit = await exists(join(projects, dir, `${id}.jsonl`));
-		if (hit) return hit;
+	const folders = new Set([cwd.replace(/[^a-zA-Z0-9]/g, '-'), ...(await readdir(projects).catch(() => [] as string[]))]);
+	let newest: { file: string; at: number } | null = null;
+	for (const folder of folders) {
+		const file = join(projects, folder, `${id}.jsonl`);
+		const info = await stat(file).catch(() => null);
+		if (info?.isFile() && (!newest || info.mtimeMs > newest.at)) newest = { file, at: info.mtimeMs };
 	}
-	return null;
+	return newest?.file ?? null;
 }
 
 const cache = new Map<string, { stamp: string; note: SessionNote }>();
