@@ -173,6 +173,13 @@
 		</div>
 	</section>
 
+	<!-- what the three shapes mean; it sits on the timeline so the header has room -->
+	<div class="pointer-events-none absolute bottom-4 left-4 z-40 hidden items-center gap-4 rounded-md border border-edge bg-ground px-3 py-2 text-xs text-muted sm:flex">
+		<span class="inline-flex items-center gap-2"><Mark state="done" stage="ticket" small />ticket</span>
+		<span class="inline-flex items-center gap-2"><Mark state="done" stage="session" small />has a session</span>
+		<span class="inline-flex items-center gap-2"><Mark state="done" stage="pr" small />has a pull request</span>
+	</div>
+
 	<div class="absolute right-4 bottom-4 z-40 flex overflow-hidden rounded-md border border-rail bg-ground">
 		<button type="button" class="h-11 px-3.5 font-mono text-xs hover:bg-edge" onclick={toNow}>now</button>
 		<button type="button" aria-label="Zoom out" class="h-11 w-11 border-l border-rail text-lg hover:bg-edge" onclick={() => zoom(1 / 1.5)}>−</button>

@@ -3,7 +3,6 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import LaneView from '#lib/LaneView.svelte';
 	import { layout, nextInState, type Cluster } from '#lib/layout.ts';
-	import Mark from '#lib/Mark.svelte';
 	import type { Graph, GraphNode, Lane, NodeState } from '#lib/model.ts';
 	import { alerts, type Alert } from '#lib/notify.ts';
 	import Panel from '#lib/Panel.svelte';
@@ -176,14 +175,11 @@
 			{/each}
 		</div>
 		<div class="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-muted">
-			<span class="inline-flex items-center gap-2"><Mark state="done" stage="ticket" small />ticket</span>
-			<span class="inline-flex items-center gap-2"><Mark state="done" stage="session" small />has a session</span>
-			<span class="inline-flex items-center gap-2"><Mark state="done" stage="pr" small />has a pull request</span>
 			{#if graph.demo}
 				<span class="rounded border border-rail px-2 py-0.5 font-mono text-xs">demo data</span>
 				<a class="underline underline-offset-2 hover:text-ink" href="/">leave demo</a>
 			{/if}
-			{#if canNotify}
+			{#if canNotify && !graph.demo}
 				<button
 					type="button"
 					aria-pressed={notifyOn}
