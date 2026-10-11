@@ -4,7 +4,8 @@ import { config } from './config';
 import { fetchPullRequests, githubToken } from './github';
 import { fetchIssues } from './linear';
 import { listSessions } from './sessions';
-import { branchHistory, claudeHome, findTranscript, readNote } from './transcript';
+import { homedir } from 'node:os';
+import { branchHistory, claudeHome, findTranscript, lastBranch, readNote } from './transcript';
 
 /**
  * Tries each source for real and says what came back (S-79). It reports counts and
@@ -29,6 +30,10 @@ interface Deps {
 
 const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** fetch says exactly this when it got no answer at all. Other TypeErrors are about what was sent. */
+const unreachable = (e: unknown) => e instanceof TypeError && e.message === 'fetch failed';
+/** A path without the name of whoever is logged in. */
+const tilde = (path: string) => (path.startsWith(homedir()) ? `~${path.slice(homedir().length)}` : path);
 /** At most this many sessions have their transcripts read. */
 const SAMPLE = 20;
 
@@ -57,8 +62,7 @@ async function checkLinear({ cfg, fetcher }: Deps): Promise<{ check: Check; issu
 			issues
 		};
 	} catch (e) {
-		// fetch throws a TypeError when it gets no answer at all
-		const summary = e instanceof TypeError ? 'Could not reach Linear. Is this machine online?' : `Linear refused: ${message(e)}`;
+		const summary = unreachable(e) ? 'Could not reach Linear. Is this machine online?' : `Linear refused: ${message(e)}`;
 		return { check: { name, ok: false, summary, details: [] }, issues: [] };
 	}
 }
@@ -84,7 +88,8 @@ async function checkGitHub({ cfg, fetcher, ghToken }: Deps): Promise<Check> {
 			details.push(`${repo}: ${plural(prs.length, 'pull request')}, ${prs.filter((p) => p.state === 'open' || p.state === 'draft').length} open`);
 		} catch (e) {
 			failed++;
-			details.push(e instanceof TypeError ? `${repo}: could not reach GitHub` : `${message(e)}${WHY[message(e).split('HTTP ')[1]] ?? ''}`);
+			const text = message(e).startsWith(repo) ? message(e) : `${repo}: ${message(e)}`;
+			details.push(unreachable(e) ? `${repo}: could not reach GitHub` : `${text}${WHY[text.split('HTTP ')[1]] ?? ''}`);
 		}
 	}
 	const n = cfg.githubRepos.length;
@@ -132,12 +137,14 @@ async function checkTranscripts({ claude }: Deps, sessions: Session[]): Promise<
 		seen.found++;
 		const note = await readNote(file).catch(() => null);
 		const branches = await branchHistory(file).catch(() => [] as string[]);
+		// the timeline links by the branch at the end of the transcript, so this does too
+		const branch = await lastBranch(file).catch(() => null);
 		if (note?.lastPrompt || note?.firstPrompt) seen.asked++;
 		if (note?.lastReply) seen.replied++;
 		if (note?.prs.length) seen.prs++;
 		if (branches.length) seen.branch++;
 		if (branches.length > 1) seen.moved++;
-		withBranch.push({ ...s, branch: branches.at(-1) ?? null });
+		withBranch.push({ ...s, branch });
 	}
 	const of = `of the ${sample.length} most recent`;
 	const details = [
@@ -145,7 +152,7 @@ async function checkTranscripts({ claude }: Deps, sessions: Session[]): Promise<
 		`Git branch readable in ${seen.branch}; ${seen.moved} moved from one branch to another`,
 		`${seen.prs} opened a pull request`
 	];
-	if (!seen.found) return { check: { name, ok: false, summary: `No transcript found for any ${of} sessions. Looked in ${claude}/projects.`, details: [] }, sessions: withBranch };
+	if (!seen.found) return { check: { name, ok: false, summary: `No transcript found for any ${of} sessions. Looked in ${tilde(claude)}/projects.`, details: [] }, sessions: withBranch };
 	if (!seen.asked && !seen.replied) {
 		return { check: { name, ok: false, summary: `Found ${seen.found} ${of}, but could not read any. The format may differ from the one wtfwid knows.`, details }, sessions: withBranch };
 	}
@@ -165,7 +172,7 @@ function checkLinking(issues: Issue[], sessions: Session[]): Check {
 	return {
 		name,
 		ok: matched > 0,
-		summary: `${matched} of ${plural(sessions.length, 'session')} belong to a ticket.`,
+		summary: `${matched} of the ${sessions.length} most recent sessions belong to a ticket.`,
 		details: [`${byNameOnly} by their name or folder, ${matched - byNameOnly} more by the branch they are on`, ...(matched ? [] : ['Work on the branch Linear suggests for the issue, or name the session after it: claude -n "ENG-123 …"'])]
 	};
 }

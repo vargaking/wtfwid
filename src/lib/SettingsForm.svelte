@@ -177,7 +177,7 @@
 							</div>
 							<div class="ml-[4.625rem] text-[13px]">
 								<p>{c.summary}</p>
-								{#each c.details as d (d)}
+								{#each c.details as d, i (i)}
 									<p class="text-muted">{d}</p>
 								{/each}
 							</div>
