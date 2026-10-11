@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AXIS_H, DAY, LANE_H, LINE_Y, MAX_ROWS, ROW_H, layout, nextInState } from './layout';
+import { AXIS_H, DAY, FOLD_H, FOLD_LINE_Y, LANE_H, LINE_Y, MAX_ROWS, ROW_H, layout, nextInState } from './layout';
 import type { Graph, GraphNode, Lane, NodeState } from './model';
 
 const NOW = Date.parse('2026-10-10T12:00:00.000Z');
@@ -131,8 +131,10 @@ describe('lines and branches', () => {
 	it('S-21 branches each milestone off the trunk just before its first node', () => {
 		expect(view.connectors).toEqual([
 			{ left: o.lineLeft - 28, top: t.y + LINE_Y, width: 28, height: LANE_H },
-			{ left: c.lineLeft - 28, top: t.y + LINE_Y, width: 28, height: 2 * LANE_H }
+			// the older milestone is finished, so it is folded and its line runs higher in its lane
+			{ left: c.lineLeft - 28, top: t.y + LINE_Y, width: 28, height: 2 * LANE_H + FOLD_LINE_Y - LINE_Y }
 		]);
+		expect(view.connectors[1].top + view.connectors[1].height).toBe(c.y + c.lineY);
 		expect(t.lineLeft).toBe(c.lineLeft - 28);
 	});
 
@@ -166,6 +168,32 @@ describe('lines and branches', () => {
 		const empty = layout(graph([lane('p', [], { closed: true }), closed]), NOW, 160);
 		expect(empty.lanes[0].lineLeft).toBe(empty.lanes[1].lineLeft - 28);
 		expect(empty.lanes[0].lineRight).toBe(empty.lanes[1].lineRight);
+	});
+});
+
+describe('folding', () => {
+	const burst = hourly(6);
+	const g = graph([lane('old', burst, { closed: true }), lane('live', [node('x', '2026-10-09T09:00:00.000Z', 'working')])]);
+
+	it('S-16 draws a finished lane as a strip: one row, no names, less height', () => {
+		const [old, live] = layout(g, NOW, 160).lanes;
+		expect(old).toMatchObject({ folded: true, height: FOLD_H, lineY: FOLD_LINE_Y, status: 'finished · 6 tickets' });
+		expect(old.clusters.every((c) => c.row === 0 && c.label === null)).toBe(true);
+		expect(old.clusters.reduce((n, c) => n + c.nodes.length, 0)).toBe(6);
+		expect(live).toMatchObject({ folded: false, y: AXIS_H + FOLD_H, lineY: LINE_Y });
+	});
+
+	it('S-16 draws it in full once it is unfolded', () => {
+		const [old, live] = layout(g, NOW, 160, false, MAX_ROWS, new Set(['old'])).lanes;
+		expect(old.folded).toBe(false);
+		expect(Math.max(...old.clusters.map((c) => c.row))).toBeGreaterThan(0);
+		expect(old.clusters.some((c) => c.label)).toBe(true);
+		expect(live.y).toBe(AXIS_H + old.height);
+	});
+
+	it('S-16 never folds a lane with anything still open', () => {
+		expect(layout(g, NOW, 160).lanes[1].folded).toBe(false);
+		expect(layout(g, NOW, 160, false, MAX_ROWS, new Set(['live'])).lanes[1].folded).toBe(false);
 	});
 });
 

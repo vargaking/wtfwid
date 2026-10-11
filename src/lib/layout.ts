@@ -10,6 +10,9 @@ export const AXIS_H = 40;
 export const ROW_H = 26;
 /** Tickets started close together stack into this many rows before they merge (S-35). */
 export const MAX_ROWS = 5;
+/** Height of a folded lane, and where its line runs (S-16). */
+export const FOLD_H = 44;
+export const FOLD_LINE_Y = 30;
 const PAD = 48;
 /** Room a node needs in its row: the mark, and a little air. */
 const NODE_W = 24;
@@ -47,6 +50,10 @@ export interface LaneBox {
 	lane: Lane;
 	y: number;
 	height: number;
+	/** Where the lane's line runs, from the top of the lane. */
+	lineY: number;
+	/** A finished lane drawn as a thin strip: one row of small marks, no names (S-16). */
+	folded: boolean;
 	clusters: Cluster[];
 	lineLeft: number;
 	lineRight: number;
@@ -150,11 +157,14 @@ function describe(nodes: GraphNode[], unsorted: boolean): Pick<Cluster, 'label' 
  * started close together stack below the line in the order they started. Only when every
  * row is taken does a node merge into the item just before it, which becomes a cluster.
  */
-function place(lane: Lane, x: (iso: string) => number, maxRows: number): Cluster[] {
+function place(lane: Lane, x: (iso: string) => number, maxRows: number, folded = false): Cluster[] {
 	const unsorted = lane.kind === 'unsorted';
+	if (folded) maxRows = 1;
+	const nodeW = folded ? 14 : NODE_W;
 	const extent = (nodes: GraphNode[], at: number) => {
 		const d = describe(nodes, unsorted);
-		const mark = nodes.length > 1 ? NODE_W + 12 : NODE_W; // a cluster's counted pill is wider
+		if (folded) d.label = null;
+		const mark = nodes.length > 1 ? nodeW + 12 : nodeW; // a cluster's counted pill is wider
 		return { ...d, right: at + mark / 2 + (d.label ? 4 + d.label.length * CHAR_W : 0) };
 	};
 	type Item = { x: number; row: number; nodes: GraphNode[]; right: number };
@@ -163,7 +173,7 @@ function place(lane: Lane, x: (iso: string) => number, maxRows: number): Cluster
 	for (const node of lane.nodes) {
 		const nx = Math.round(x(node.at));
 		let row = 0;
-		while (row < maxRows && rows[row] && nx - NODE_W / 2 < rows[row].at(-1)!.right + 4) row++;
+		while (row < maxRows && rows[row] && nx - nodeW / 2 < rows[row].at(-1)!.right + (folded ? 2 : 4)) row++;
 		if (row < maxRows) {
 			const item = { x: nx, row, nodes: [node], right: extent([node], nx).right };
 			(rows[row] ??= []).push(item);
@@ -186,7 +196,7 @@ function place(lane: Lane, x: (iso: string) => number, maxRows: number): Cluster
 
 	return items.map((g) => {
 		const d = extent(g.nodes, g.x);
-		const label = d.label ?? (g.nodes.length === 1 ? fit(g.nodes[0], room.get(g)!) : null);
+		const label = d.label ?? (g.nodes.length === 1 && !folded ? fit(g.nodes[0], room.get(g)!) : null);
 		return {
 			key: g.nodes[0].id,
 			x: g.x,
@@ -201,7 +211,10 @@ function place(lane: Lane, x: (iso: string) => number, maxRows: number): Cluster
 }
 
 function statusText(lane: Lane): { status: string; urgent: boolean } {
-	if (lane.closed) return { status: 'finished', urgent: false };
+	if (lane.closed) {
+		const n = lane.nodes.length;
+		return { status: n ? `finished · ${n} ${n === 1 ? 'ticket' : 'tickets'}` : 'finished', urgent: false };
+	}
 	const n = (s: NodeState) => lane.nodes.filter((node) => node.state === s).length;
 	const parts = [
 		n('needs') && `${n('needs')} ${n('needs') === 1 ? 'needs' : 'need'} you`,
@@ -212,7 +225,15 @@ function statusText(lane: Lane): { status: string; urgent: boolean } {
 	return { status: parts.join(' · ') || 'nothing waiting', urgent: n('needs') > 0 };
 }
 
-export function layout(graph: Graph, now: number, pxPerDay: number, hideFinished = false, maxRows = MAX_ROWS): Layout {
+/** `unfolded` holds the ids of the finished lanes that are drawn in full (S-16). */
+export function layout(
+	graph: Graph,
+	now: number,
+	pxPerDay: number,
+	hideFinished = false,
+	maxRows = MAX_ROWS,
+	unfolded: ReadonlySet<string> = new Set()
+): Layout {
 	const all = graph.lanes.flatMap((l) => l.nodes);
 	const first = all.length ? Math.min(...all.map((n) => Date.parse(n.at))) : now - 7 * DAY;
 	const t0 = startOfDay(first) - DAY;
@@ -223,14 +244,17 @@ export function layout(graph: Graph, now: number, pxPerDay: number, hideFinished
 	const boxes = new Map<string, LaneBox>();
 	let y = AXIS_H;
 	const lanes = visible.map((lane) => {
-		const cs = place(lane, x, maxRows);
+		const folded = lane.closed && !unfolded.has(lane.id);
+		const cs = place(lane, x, maxRows, folded);
 		const xs = lane.nodes.map((n) => x(n.at));
 		const rows = Math.max(1, ...cs.map((c) => c.row + 1));
 		// A trunk with no tickets of its own gets its extent from its branches, below.
 		const box: LaneBox = {
 			lane,
 			y,
-			height: LANE_H + (rows - 1) * ROW_H,
+			height: folded ? FOLD_H : LANE_H + (rows - 1) * ROW_H,
+			lineY: folded ? FOLD_LINE_Y : LINE_Y,
+			folded,
 			clusters: cs,
 			lineLeft: Math.round(Math.min(...xs, Infinity)),
 			lineRight: lane.closed ? Math.round(Math.max(...xs, -Infinity)) : nowX,
@@ -250,7 +274,8 @@ export function layout(graph: Graph, now: number, pxPerDay: number, hideFinished
 		const elbow = box.lineLeft - ELBOW;
 		trunk.lineLeft = Math.min(trunk.lineLeft, elbow);
 		trunk.lineRight = Math.max(trunk.lineRight, box.lineRight);
-		connectors.push({ left: elbow, top: trunk.y + LINE_Y, width: ELBOW, height: box.y - trunk.y });
+		const top = trunk.y + trunk.lineY;
+		connectors.push({ left: elbow, top, width: ELBOW, height: box.y + box.lineY - top });
 	}
 
 	// One labelled tick per day when there is room, otherwise one per week.

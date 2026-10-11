@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { LINE_Y, ROW_H, tOf, xOf, type Cluster, type Layout } from './layout';
+	import { ROW_H, tOf, xOf, type Cluster, type Layout } from './layout';
 	import Mark from './Mark.svelte';
 
 	interface Props {
@@ -9,8 +9,10 @@
 		/** ids of the nodes shown in the side panel */
 		picked: string[];
 		onpick: (cluster: Cluster) => void;
+		/** Fold or unfold a finished lane. */
+		onfold: (laneId: string) => void;
 	}
-	let { view, pxPerDay = $bindable(), picked, onpick }: Props = $props();
+	let { view, pxPerDay = $bindable(), picked, onpick, onfold }: Props = $props();
 
 	const MIN_ZOOM = 12;
 	const MAX_ZOOM = 1600;
@@ -51,7 +53,7 @@
 			if (!c) continue;
 			viewport.scrollTo({
 				left: c.x - viewport.clientWidth * 0.4,
-				top: box.y + LINE_Y + c.row * ROW_H - viewport.clientHeight / 2,
+				top: box.y + box.lineY + c.row * ROW_H - viewport.clientHeight / 2,
 				behavior: glide()
 			});
 			return;
@@ -117,12 +119,26 @@
 					<div
 						aria-hidden="true"
 						class="absolute h-0.5 {box.lane.closed ? 'bg-rail-dim' : 'bg-rail'}"
-						style="top: {LINE_Y - 1}px; left: {box.lineLeft}px; width: {Math.max(0, box.lineRight - box.lineLeft)}px"
+						style="top: {box.lineY - 1}px; left: {box.lineLeft}px; width: {Math.max(0, box.lineRight - box.lineLeft)}px"
 					></div>
-					<div class="flex h-[30px] items-end">
+					<div class="flex items-end {box.folded ? 'h-5' : 'h-[30px]'}">
 						<div class="flex-none" style="width: {Math.max(0, box.lineLeft - 9)}px"></div>
 						<div class="sticky left-4 z-20 flex flex-none items-baseline gap-2.5 bg-ground py-0.5 pr-3 whitespace-nowrap">
-							<span class="text-[15px] font-medium {box.lane.closed ? 'text-muted' : ''}">{box.lane.name}</span>
+							{#if box.lane.closed}
+								<!-- S-16: a finished lane folds to a strip; its name opens it -->
+								<button
+									type="button"
+									aria-expanded={!box.folded}
+									title={box.folded ? 'Show this line in full' : 'Fold this line'}
+									class="-mx-1 flex items-baseline gap-1.5 rounded px-1 font-medium text-muted hover:text-ink {box.folded ? 'text-[13px]' : 'text-[15px]'}"
+									onclick={() => onfold(box.lane.id)}
+								>
+									<span aria-hidden="true" class="font-mono text-[10px]">{box.folded ? '▸' : '▾'}</span>
+									{box.lane.name}
+								</button>
+							{:else}
+								<span class="text-[15px] font-medium">{box.lane.name}</span>
+							{/if}
 							{#if box.lane.project}
 								<span class="font-mono text-xs text-muted">{box.lane.project}</span>
 							{/if}
@@ -131,7 +147,7 @@
 					</div>
 
 					{#each box.clusters as c (c.key)}
-						{@const cy = LINE_Y + c.row * ROW_H}
+						{@const cy = box.lineY + c.row * ROW_H}
 						<button
 							type="button"
 							aria-label={c.title}
@@ -140,7 +156,7 @@
 							style="left: {c.x}px; top: {cy}px"
 							onclick={() => onpick(c)}
 						>
-							<Mark state={c.state} stage={c.stage} count={c.nodes.length} selected={isPicked(c)} small={c.quiet && c.stage !== null} />
+							<Mark state={c.state} stage={c.stage} count={c.nodes.length} selected={isPicked(c)} small={box.folded || (c.quiet && c.stage !== null)} />
 						</button>
 						{#if c.label}
 							<div

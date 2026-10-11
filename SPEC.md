@@ -23,9 +23,10 @@ Tests name the statements they cover (`S-…` in the test title).
 - **S-10** stated — Time runs left to right, linearly, with no fixed window. Pan to go back.
 - **S-11** stated — A feature is a horizontal line. A new feature can branch off an existing line.
 - **S-12** stated — Finished features stay in place on the timeline. There is no separate "closed" section.
-- **S-13** assumed — Finished lines are drawn faded, and one button hides them.
+- **S-13** assumed — Finished lines are drawn faded and folded (S-16), and one button hides them altogether.
 - **S-14** assumed — The view opens scrolled to now. Zoom changes pixels per day (buttons, or ctrl/cmd + wheel).
 - **S-15** assumed — The counts in the header are buttons. Each one scrolls to the next ticket in that state and opens it, going round. A "now" button scrolls back to now. Reason: with stacked rows the timeline is taller than the window, and a ticket that needs you can be off screen.
+- **S-16** assumed — A finished line is folded: a thin strip with one row of small marks and no names, so history keeps its place without taking the room. Clicking the line's name unfolds it; clicking again folds it. Reason: with stacked rows (S-35) a line is as tall as its busiest moment, and most lines are finished.
 
 ## What a line is
 

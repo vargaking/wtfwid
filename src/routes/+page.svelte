@@ -20,7 +20,10 @@
 
 	const graph = $derived(data.graph);
 	const now = $derived(Date.parse(graph.fetchedAt));
-	const view = $derived(layout(graph, now, pxPerDay, hideFinished));
+	// S-16: finished lanes are folded until their name is clicked
+	let unfolded = $state<string[]>([]);
+	const view = $derived(layout(graph, now, pxPerDay, hideFinished, undefined, new Set(unfolded)));
+	const fold = (id: string) => (unfolded = unfolded.includes(id) ? unfolded.filter((x) => x !== id) : [...unfolded, id]);
 	const byId = $derived(new Map(graph.lanes.flatMap((l) => l.nodes).map((n) => [n.id, n])));
 	const pickedNodes = $derived(picked.map((id) => byId.get(id)).filter((n): n is GraphNode => !!n));
 	const focus = $derived((focusId && byId.get(focusId)) || (pickedNodes.length === 1 ? pickedNodes[0] : null));
@@ -120,7 +123,7 @@
 
 	<main class="flex min-h-0 flex-1 flex-col md:flex-row">
 		{#if graph.lanes.length}
-			<LaneView bind:this={timeline} {view} bind:pxPerDay {picked} onpick={pick} />
+			<LaneView bind:this={timeline} {view} bind:pxPerDay {picked} onpick={pick} onfold={fold} />
 			<Panel nodes={pickedNodes} {focus} onfocus={(id) => (focusId = id)} />
 		{:else}
 			<div class="flex flex-1 items-center justify-center px-6 text-center">

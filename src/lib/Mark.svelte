@@ -59,6 +59,13 @@
 		font: 600 12px/18px var(--font-mono);
 		text-align: center;
 	}
+	.pill.small {
+		min-width: 22px;
+		height: 16px;
+		padding: 0 5px;
+		border-radius: 8px;
+		font: 600 10px/12px var(--font-mono);
+	}
 	.selected {
 		outline-color: var(--color-ink);
 	}
