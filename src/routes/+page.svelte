@@ -4,7 +4,7 @@
 	import LaneView from '#lib/LaneView.svelte';
 	import { layout, nextInState, type Cluster } from '#lib/layout.ts';
 	import type { Graph, GraphNode, Lane, NodeState } from '#lib/model.ts';
-	import { alerts, type Alert } from '#lib/notify.ts';
+	import { alerts, reliable, type Alert } from '#lib/notify.ts';
 	import Panel from '#lib/Panel.svelte';
 	import Search from '#lib/Search.svelte';
 	import Settings from '#lib/Settings.svelte';
@@ -102,11 +102,14 @@
 		}
 	}
 
+	// Compare each refresh with the last one that could be trusted. A refresh where a source
+	// failed is skipped, so the failure and the recovery are not mistaken for changes.
 	let seen: Graph | null = null;
 	$effect(() => {
+		if (!reliable(graph)) return;
 		const before = seen;
 		seen = graph;
-		if (!before || before.demo !== graph.demo || !untrack(() => notifyOn)) return;
+		if (!before || !untrack(() => notifyOn)) return;
 		for (const alert of alerts(before, graph)) send(alert);
 	});
 
