@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { LANE_H, LINE_Y, tOf, xOf, type Cluster, type Layout } from './layout';
+	import { MAX_ZOOM, MIN_ZOOM, ROW_H, tOf, xOf, type Cluster, type Layout } from './layout';
 	import Mark from './Mark.svelte';
 
 	interface Props {
@@ -9,12 +9,11 @@
 		/** ids of the nodes shown in the side panel */
 		picked: string[];
 		onpick: (cluster: Cluster) => void;
+		/** Fold or unfold a finished lane. */
+		onfold: (laneId: string) => void;
 	}
-	let { view, pxPerDay = $bindable(), picked, onpick }: Props = $props();
+	let { view, pxPerDay = $bindable(), picked, onpick, onfold }: Props = $props();
 
-	const MIN_ZOOM = 12;
-	const MAX_ZOOM = 1600;
-	const STATE_WORDS = { needs: 'needs you', failed: 'failed', working: 'working', review: 'ready for review', open: 'open', done: 'done' };
 
 	let viewport: HTMLElement;
 	let dragging = $state(false);
@@ -43,22 +42,41 @@
 		return () => viewport.removeEventListener('wheel', onWheel);
 	});
 
+	const glide = (): ScrollBehavior => (matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth');
+
+	/** Scrolls so the node is in view, left of the middle to leave room for its label (S-15). */
+	export function reveal(id: string) {
+		for (const box of view.lanes) {
+			const c = box.clusters.find((c) => c.nodes.some((n) => n.id === id));
+			if (!c) continue;
+			viewport.scrollTo({
+				left: c.x - viewport.clientWidth * 0.4,
+				top: box.y + box.lineY + c.row * ROW_H - viewport.clientHeight / 2,
+				behavior: glide()
+			});
+			return;
+		}
+	}
+
+	/** Back to where the view opens (S-14). */
+	function toNow() {
+		viewport.scrollTo({ left: view.nowX - viewport.clientWidth + 180, behavior: glide() });
+	}
+
 	function panStart(e: PointerEvent) {
 		if (e.pointerType !== 'mouse' || e.button !== 0) return;
 		if ((e.target as Element).closest('button')) return;
 		dragging = true;
 	}
 	function panMove(e: PointerEvent) {
+		// a button released outside the window never reports it: stop following the mouse
+		if (dragging && !(e.buttons & 1)) dragging = false;
 		if (!dragging) return;
 		viewport.scrollLeft -= e.movementX;
 		viewport.scrollTop -= e.movementY;
 	}
 
 	const isPicked = (c: Cluster) => c.nodes.some((n) => picked.includes(n.id));
-	const describe = (c: Cluster) =>
-		c.nodes.length === 1
-			? `${c.nodes[0].label}: ${c.nodes[0].title}, ${STATE_WORDS[c.state]}`
-			: `${c.label}, most urgent: ${STATE_WORDS[c.state]}`;
 </script>
 
 <div class="relative min-h-80 min-w-0 flex-1">
@@ -97,16 +115,30 @@
 			</div>
 
 			{#each view.lanes as box (box.lane.id)}
-				<div class="relative z-10" style="height: {LANE_H}px">
+				<div class="relative z-10" style="height: {box.height}px">
 					<div
 						aria-hidden="true"
 						class="absolute h-0.5 {box.lane.closed ? 'bg-rail-dim' : 'bg-rail'}"
-						style="top: {LINE_Y - 1}px; left: {box.lineLeft}px; width: {Math.max(0, box.lineRight - box.lineLeft)}px"
+						style="top: {box.lineY - 1}px; left: {box.lineLeft}px; width: {Math.max(0, box.lineRight - box.lineLeft)}px"
 					></div>
-					<div class="flex h-[30px] items-end">
+					<div class="flex items-end {box.folded ? 'h-5' : 'h-[30px]'}">
 						<div class="flex-none" style="width: {Math.max(0, box.lineLeft - 9)}px"></div>
 						<div class="sticky left-4 z-20 flex flex-none items-baseline gap-2.5 bg-ground py-0.5 pr-3 whitespace-nowrap">
-							<span class="text-[15px] font-medium {box.lane.closed ? 'text-muted' : ''}">{box.lane.name}</span>
+							{#if box.lane.closed}
+								<!-- S-16: a finished lane folds to a strip; its name opens it -->
+								<button
+									type="button"
+									aria-expanded={!box.folded}
+									title={box.folded ? 'Show this line in full' : 'Fold this line'}
+									class="-mx-1 flex items-baseline gap-1.5 rounded px-1 font-medium text-muted hover:text-ink {box.folded ? 'text-[13px]' : 'text-[15px]'}"
+									onclick={() => onfold(box.lane.id)}
+								>
+									<span aria-hidden="true" class="font-mono text-[10px]">{box.folded ? '▸' : '▾'}</span>
+									{box.lane.name}
+								</button>
+							{:else}
+								<span class="text-[15px] font-medium">{box.lane.name}</span>
+							{/if}
 							{#if box.lane.project}
 								<span class="font-mono text-xs text-muted">{box.lane.project}</span>
 							{/if}
@@ -115,30 +147,43 @@
 					</div>
 
 					{#each box.clusters as c (c.key)}
+						{@const cy = box.lineY + c.row * ROW_H}
 						<button
 							type="button"
-							aria-label={describe(c)}
-							class="absolute flex h-11 min-w-11 -translate-x-1/2 items-center justify-center"
-							style="left: {c.x}px; top: {LINE_Y - 22}px"
+							aria-label={c.title}
+							title={c.title}
+							class="absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center {box.folded ? 'h-4 min-w-3.5' : 'h-6 min-w-6'}"
+							style="left: {c.markX}px; top: {cy}px"
 							onclick={() => onpick(c)}
 						>
-							<Mark state={c.state} stage={c.stage} count={c.nodes.length} selected={isPicked(c)} />
+							<Mark state={c.state} stage={c.stage} count={c.nodes.length} selected={isPicked(c)} small={box.folded || (c.quiet && c.stage !== null)} />
 						</button>
-						<div
-							aria-hidden="true"
-							class="s-{c.state} pointer-events-none absolute -translate-x-1/2 font-mono text-[11px] whitespace-nowrap"
-							style="left: {c.x}px; top: {LINE_Y + 22}px; color: var(--tone)"
-						>
-							{c.label}
-						</div>
+						{#if c.label}
+							<!-- starts clear of the selection ring around the mark -->
+							<div
+								aria-hidden="true"
+								class="s-{c.state} pointer-events-none absolute -translate-y-1/2 bg-ground pr-1 font-mono text-[11px] leading-4 whitespace-nowrap"
+								style="left: {c.labelX}px; top: {cy}px; color: {c.quiet ? 'color-mix(in srgb, var(--color-muted) 70%, var(--color-ground))' : 'var(--tone)'}"
+							>
+								{c.label}
+							</div>
+						{/if}
 					{/each}
 				</div>
 			{/each}
 		</div>
 	</section>
 
+	<!-- what the three shapes mean; it sits on the timeline so the header has room -->
+	<div class="pointer-events-none absolute bottom-4 left-4 z-40 hidden items-center gap-4 rounded-md border border-edge bg-ground px-3 py-2 text-xs text-muted sm:flex">
+		<span class="inline-flex items-center gap-2"><Mark state="done" stage="ticket" small />ticket</span>
+		<span class="inline-flex items-center gap-2"><Mark state="done" stage="session" small />has a session</span>
+		<span class="inline-flex items-center gap-2"><Mark state="done" stage="pr" small />has a pull request</span>
+	</div>
+
 	<div class="absolute right-4 bottom-4 z-40 flex overflow-hidden rounded-md border border-rail bg-ground">
-		<button type="button" aria-label="Zoom out" class="h-11 w-11 text-lg hover:bg-edge" onclick={() => zoom(1 / 1.5)}>−</button>
+		<button type="button" class="h-11 px-3.5 font-mono text-xs hover:bg-edge" onclick={toNow}>now</button>
+		<button type="button" aria-label="Zoom out" class="h-11 w-11 border-l border-rail text-lg hover:bg-edge" onclick={() => zoom(1 / 1.5)}>−</button>
 		<button type="button" aria-label="Zoom in" class="h-11 w-11 border-l border-rail text-lg hover:bg-edge" onclick={() => zoom(1.5)}>+</button>
 	</div>
 </div>

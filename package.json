@@ -1,7 +1,7 @@
 {
 	"name": "wtfwid",
 	"private": true,
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "What the f was I doing: tickets, Claude Code sessions and pull requests on one timeline.",
 	"author": "vargaking",
 	"type": "module",
@@ -16,6 +16,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test": "vitest run",
+		"spec": "node scripts/spec-check.js",
 		"start": "node start.js",
 		"desktop": "vite build && electron .",
 		"dist": "vite build && electron-builder"

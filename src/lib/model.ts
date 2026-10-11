@@ -45,11 +45,28 @@ export interface Session {
 	waitingFor: string | null;
 	/** True once Claude Code no longer lists the session. */
 	gone: boolean;
+	/** The git branch it was last on, read from its transcript. */
+	branch?: string | null;
+}
+
+/** What a session's transcript says it was doing (S-55). */
+export interface SessionNote {
+	/** What the session was started with. Lost once Claude Code compacts the conversation. */
+	firstPrompt: string | null;
+	/** The last thing you asked. */
+	lastPrompt: string | null;
+	/** The last thing Claude said, and when. */
+	lastReply: string | null;
+	at: string | null;
+	/** Pull requests the session opened. */
+	prs: { repo: string; number: number; url: string }[];
 }
 
 export interface Snapshot {
 	fetchedAt: string;
 	demo: boolean;
+	/** Nothing is connected yet; the screen shows first-run setup instead of a timeline. */
+	setup?: boolean;
 	warnings: string[];
 	issues: Issue[];
 	prs: PullRequest[];
@@ -92,6 +109,7 @@ export interface Lane {
 export interface Graph {
 	fetchedAt: string;
 	demo: boolean;
+	setup: boolean;
 	warnings: string[];
 	lanes: Lane[];
 }

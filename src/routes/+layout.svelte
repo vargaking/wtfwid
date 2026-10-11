@@ -10,8 +10,4 @@
 	let { children }: LayoutProps = $props();
 </script>
 
-<svelte:head>
-	<title>wtfwid</title>
-</svelte:head>
-
 {@render children()}

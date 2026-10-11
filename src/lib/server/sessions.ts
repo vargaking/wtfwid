@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { Session } from '../model';
+import { findTranscript, lastBranch } from './transcript';
 
 const run = promisify(execFile);
 
@@ -66,11 +67,37 @@ export async function listSessions(): Promise<Session[]> {
 	return (JSON.parse(stdout) as AgentEntry[]).map(toSession);
 }
 
-export async function collectSessions(home: string, list: () => Promise<Session[]> = listSessions): Promise<Session[]> {
+/** Adds the branch each listed session is on, where its transcript says (S-50). */
+async function withBranches(listed: Session[], known: Session[], claude: string | undefined): Promise<Session[]> {
+	const before = new Map(known.map((s) => [s.id, s.branch ?? null]));
+	return Promise.all(
+		listed.map(async (s) => {
+			const branch = await findTranscript(s.id, s.cwd, claude)
+				.then((file) => (file ? lastBranch(file) : null))
+				.catch(() => null);
+			return { ...s, branch: branch ?? before.get(s.id) ?? null };
+		})
+	);
+}
+
+/** `claude` is where Claude Code keeps its files; tests point it somewhere else. */
+export async function collectSessions(home: string, list: () => Promise<Session[]> = listSessions, claude?: string): Promise<Session[]> {
 	const file = join(home, 'sessions.json');
-	const known: Session[] = await readFile(file, 'utf8').then(JSON.parse, () => []);
-	const all = remember(known, await list());
+	// No file yet means nothing remembered. A file that cannot be read is an error, not an
+	// empty list: carrying on would write it back without the sessions it held.
+	const known: unknown = await readFile(file, 'utf8').then(JSON.parse, (e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? [] : Promise.reject(e)));
+	if (!Array.isArray(known)) throw new Error(`${file} does not hold a list of sessions`);
+	const all = remember(known, await withBranches(await list(), known, claude));
 	await mkdir(home, { recursive: true });
-	await writeFile(file, JSON.stringify(all, null, '\t'));
+	// written beside the file and moved into place, so nothing ever reads half of it
+	const draft = `${file}.${process.pid}.tmp`;
+	await writeFile(draft, JSON.stringify(all, null, '\t'));
+	await rename(draft, file);
 	return all;
+}
+
+/** A session wtfwid has seen, by id. */
+export async function knownSession(home: string, id: string): Promise<Session | undefined> {
+	const known: unknown = await readFile(join(home, 'sessions.json'), 'utf8').then(JSON.parse).catch(() => []);
+	return Array.isArray(known) ? (known as Session[]).find((s) => s.id === id) : undefined;
 }

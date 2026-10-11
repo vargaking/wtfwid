@@ -16,7 +16,7 @@ export default defineConfig({
 		})
 	],
 	test: {
-		include: ['src/**/*.test.ts'],
+		include: ['src/**/*.test.ts', 'scripts/**/*.test.js'],
 		// Day boundaries on the timeline are local time; pin it so layout tests are stable.
 		env: { TZ: 'UTC' }
 	}

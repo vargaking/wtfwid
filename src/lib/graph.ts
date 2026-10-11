@@ -95,7 +95,19 @@ function prNode(p: PullRequest): GraphNode {
 
 const start = (lane: Lane) => lane.nodes[0]?.at ?? '9999';
 
-export function buildGraph(snap: Snapshot): Graph {
+/** The first of each. A source can hand the same thing back twice, and a node must exist once. */
+function unique<T>(items: T[], id: (item: T) => string): T[] {
+	const seen = new Set<string>();
+	return items.filter((item) => !seen.has(id(item)) && seen.add(id(item)));
+}
+
+export function buildGraph(raw: Snapshot): Graph {
+	const snap = {
+		...raw,
+		issues: unique(raw.issues, (i) => i.id),
+		prs: unique(raw.prs, (p) => `${p.repo.toLowerCase()}#${p.number}`),
+		sessions: unique(raw.sessions, (s) => s.id)
+	};
 	const issues = snap.issues.filter((i) => !HIDDEN_STATE_TYPES.has(i.stateType) && !i.canceledAt); // S-33
 	const find = matcher(issues);
 
@@ -103,7 +115,7 @@ export function buildGraph(snap: Snapshot): Graph {
 	const prsOf = new Map<string, PullRequest[]>();
 	const loose: GraphNode[] = [];
 	for (const s of snap.sessions) {
-		const issue = find(`${s.name ?? ''} ${s.cwd}`);
+		const issue = find(`${s.name ?? ''} ${s.branch ?? ''} ${s.cwd}`);
 		if (issue) sessionsOf.set(issue.id, [...(sessionsOf.get(issue.id) ?? []), s]);
 		else loose.push(sessionNode(s)); // S-52
 	}
@@ -160,5 +172,5 @@ export function buildGraph(snap: Snapshot): Graph {
 		ordered.push({ id: 'unsorted', name: 'Unsorted', project: null, kind: 'unsorted', parent: null, closed: false, nodes: loose });
 	}
 
-	return { fetchedAt: snap.fetchedAt, demo: snap.demo, warnings: snap.warnings, lanes: ordered };
+	return { fetchedAt: snap.fetchedAt, demo: snap.demo, setup: !!snap.setup, warnings: snap.warnings, lanes: ordered };
 }

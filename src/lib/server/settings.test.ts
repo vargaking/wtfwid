@@ -2,6 +2,8 @@ import { mkdtemp, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { buildGraph } from '../graph';
+import { collect } from './collect';
 import { config, publicSettings } from './config';
 import { parsePatch, readSettings, writeSettings, type Vault } from './settings';
 
@@ -66,6 +68,10 @@ describe('what the dialog may send', () => {
 		});
 	});
 
+	it('S-74 keeps a repository once, however often and in whatever case it was typed', () => {
+		expect(parsePatch({ githubRepos: ['o/r', 'a/b', 'O/R', 'o/r'] })).toEqual({ githubRepos: ['o/r', 'a/b'] });
+	});
+
 	it('S-74 says what is wrong with an invalid one', () => {
 		expect(parsePatch(null)).toBe('Expected an object.');
 		expect(parsePatch({ githubRepos: ['not a repo'] })).toBe('"not a repo" is not a repository. Write it as owner/name.');
@@ -75,7 +81,7 @@ describe('what the dialog may send', () => {
 });
 
 describe('settings and the environment', () => {
-	const KEYS = ['WTFWID_HOME', 'LINEAR_API_KEY', 'WTFWID_LINEAR_TEAM', 'WTFWID_GITHUB_REPOS', 'GITHUB_TOKEN', 'GH_TOKEN'];
+	const KEYS = ['WTFWID_HOME', 'LINEAR_API_KEY', 'WTFWID_LINEAR_TEAM', 'WTFWID_GITHUB_REPOS', 'GITHUB_TOKEN', 'GH_TOKEN', 'WTFWID_SNAPSHOT'];
 	const before = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
 	beforeEach(async () => {
 		for (const k of KEYS) delete process.env[k];
@@ -95,6 +101,17 @@ describe('settings and the environment', () => {
 		Object.assign(process.env, { LINEAR_API_KEY: 'env-key', WTFWID_LINEAR_TEAM: 'ENV', WTFWID_GITHUB_REPOS: 'a/b' });
 		await writeSettings(process.env.WTFWID_HOME!, { linearKey: 'saved-key', linearTeam: '', githubRepos: ['x/y'] }, undefined);
 		expect(await config()).toMatchObject({ linearKey: 'saved-key', linearTeam: '', githubRepos: ['x/y'] });
+	});
+
+	it('S-63 with no Linear key, asks for setup and shows no data', async () => {
+		const graph = buildGraph(await collect());
+		expect(graph).toMatchObject({ setup: true, demo: false, lanes: [], warnings: [] });
+	});
+
+	it('S-63 shows demo data only when asked for', async () => {
+		const graph = buildGraph(await collect(Date.now(), true));
+		expect(graph).toMatchObject({ setup: false, demo: true });
+		expect(graph.lanes.length).toBeGreaterThan(0);
 	});
 
 	it('S-74 never hands a key to the dialog', async () => {

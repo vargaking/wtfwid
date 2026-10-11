@@ -1,12 +1,32 @@
-import { mostUrgent, type Graph, type GraphNode, type Lane, type NodeState, type Stage } from './model';
+import { mostUrgent, STATE_ORDER, type Graph, type GraphNode, type Lane, type NodeState, type Stage } from './model';
 
 export const DAY = 86_400_000;
-export const LANE_H = 96;
-export const LINE_Y = 52;
+/** Height of a lane with one row of nodes. */
+export const LANE_H = 78;
+/** Centre of a lane's first row, where its line runs. */
+export const LINE_Y = 47;
 export const AXIS_H = 40;
+/** Height of each further row. */
+export const ROW_H = 26;
+/** Tickets started close together stack into this many rows before they merge (S-35). */
+export const MAX_ROWS = 5;
+/** Height of a folded lane, and where its line runs (S-16). */
+export const FOLD_H = 44;
+export const FOLD_LINE_Y = 30;
 const PAD = 48;
-/** Nodes closer than this merge into a cluster (S-35). Also the room one label needs. */
-const GAP = 68;
+/** Room a node needs in its row: the mark, and a little air. */
+const NODE_W = 24;
+/** Room a counted cluster needs: its pill is wider than a single mark. */
+const PILL_W = 36;
+/** Air between two things in a row, and between a mark and its label. */
+const GAP = 4;
+/** The same for a folded lane, where marks are small (S-16). */
+const FOLD_NODE_W = 14;
+const FOLD_PILL_W = 26;
+/** Width of one character of a node's label (11px IBM Plex Mono). */
+const CHAR_W = 6.7;
+/** Longest label drawn next to a node, in characters. */
+const LABEL_MAX = 34;
 /** Room a date label on the axis needs. */
 const LABEL_W = 80;
 /** How far left of a milestone's first node its branch leaves the trunk. */
@@ -15,16 +35,35 @@ const ELBOW = 28;
 export interface Cluster {
 	key: string;
 	x: number;
+	/** 0 is on the lane's line; further rows hang below it. */
+	row: number;
 	nodes: GraphNode[];
 	state: NodeState;
 	/** null for a cluster of several nodes */
 	stage: Stage | null;
-	label: string;
+	/** Finished work: drawn as a small mark, with a dimmer label (S-36). */
+	quiet: boolean;
+	/** Text drawn to the right of the node, as much of it as there is room for (S-36). */
+	label: string | null;
+	/** Full description, for the tooltip and screen readers. */
+	title: string;
+	/** Left and right edge of what is drawn: the mark, its air, and the label if it has one. */
+	left: number;
+	right: number;
+	/** Centre of the mark. A cluster's pill starts at its first node and reaches right, towards the later ones. */
+	markX: number;
+	/** Where the label starts. */
+	labelX: number;
 }
 
 export interface LaneBox {
 	lane: Lane;
 	y: number;
+	height: number;
+	/** Where the lane's line runs, from the top of the lane. */
+	lineY: number;
+	/** A finished lane drawn as a thin strip: one row of small marks, no names (S-16). */
+	folded: boolean;
 	clusters: Cluster[];
 	lineLeft: number;
 	lineRight: number;
@@ -53,7 +92,7 @@ export interface Layout {
 	lanes: LaneBox[];
 	connectors: Connector[];
 	ticks: Tick[];
-	counts: Record<'needs' | 'working' | 'review' | 'failed', number>;
+	counts: Record<'needs' | 'working' | 'review' | 'failed' | 'open', number>;
 	/** Time at the left edge of the timeline; with xOf / tOf it maps time to x and back. */
 	t0: number;
 }
@@ -80,28 +119,145 @@ export function tOf(x: number, t0: number, pxPerDay: number): number {
 	return t0 + ((x - PAD) / pxPerDay) * DAY;
 }
 
-function clusters(lane: Lane, x: (iso: string) => number): Cluster[] {
-	// A cluster sits at its first node, so two clusters are never closer than GAP.
-	const groups: { first: number; nodes: GraphNode[] }[] = [];
+const STATE_WORDS: Record<NodeState, string> = {
+	needs: 'needs you',
+	failed: 'failed',
+	working: 'working',
+	review: 'ready for review',
+	open: 'open',
+	done: 'done'
+};
+
+/**
+ * A session or pull request with no ticket whose work is over. wtfwid remembers every
+ * session it has seen, so these stay for good: they are history, whatever state they ended in.
+ */
+export function past(node: GraphNode): boolean {
+	return node.status === null && node.sessions.every((s) => s.gone) && !node.prs.length;
+}
+
+/** History is drawn small and dim; what is still in play is drawn full size, with its name (S-36). */
+export function quiet(node: GraphNode): boolean {
+	return node.state === 'done' || past(node);
+}
+
+/** A node's short name, e.g. "ENG-12", and its full one, "ENG-12 · Fix login". */
+function names(node: GraphNode): { id: string; name: string } {
+	// a session's label is its name cut short, so the name alone says everything
+	const repeats = node.title.startsWith(node.label.replace(/…$/, ''));
+	return { id: node.label, name: repeats ? node.title : `${node.label} · ${node.title}` };
+}
+
+/** The longest form of a node's name that fits in `chars` characters, or null when not even its id does. */
+function fit(node: GraphNode, chars: number): string | null {
+	const { id, name } = names(node);
+	const max = Math.min(chars, LABEL_MAX);
+	if (name.length <= max) return name;
+	if (max >= id.length + 10) return name.slice(0, max - 1).trimEnd() + '…';
+	return id.length <= max ? id : null;
+}
+
+/**
+ * Whether a node counts as being in a state, for the header (S-15). A session that ended
+ * without a ticket keeps its last state for good; it is history, not something to act on.
+ */
+function inState(node: GraphNode, state: NodeState): boolean {
+	return node.state === state && !past(node);
+}
+
+/** One thing drawn in a row: a single node, or several merged into a counted cluster. */
+interface Item {
+	x: number;
+	row: number;
+	nodes: GraphNode[];
+}
+
+/**
+ * Places a lane's nodes (S-35). Marks never move off their time and never overlap; names
+ * give way first.
+ * 1. A node goes in the first row where it clears the last item and that item's full name.
+ * 2. If no row has that much room, it goes where it clears the last mark, in the row with
+ *    the most room, and that item's name is cut to what is left.
+ * 3. Only when every row has a mark in the way does it merge into the item nearest in
+ *    time, which becomes a counted cluster.
+ * A folded lane is one row of small marks with no names (S-16).
+ */
+function place(lane: Lane, x: (iso: string) => number, maxRows: number, folded = false): Cluster[] {
+	const unsorted = lane.kind === 'unsorted';
+	if (folded) maxRows = 1;
+	const nodeW = folded ? FOLD_NODE_W : NODE_W;
+	const pillW = folded ? FOLD_PILL_W : PILL_W;
+	const gap = folded ? 2 : GAP;
+
+	/** Where an item's mark begins and ends. Merging more nodes in only ever moves the end. */
+	const markLeft = (item: Item) => item.x - nodeW / 2;
+	const markRight = (item: Item) => markLeft(item) + (item.nodes.length > 1 ? pillW : nodeW);
+	/** The text an item gets when it has `chars` characters of room to its right. */
+	const labelFor = (item: Item, chars: number): string | null => {
+		if (folded) return null;
+		if (item.nodes.length === 1) return fit(item.nodes[0], chars);
+		// a cluster's pill already shows the count; the words are for clusters that still matter
+		const words = `${item.nodes.length} ${unsorted ? 'items' : 'tickets'}`;
+		return item.nodes.every(quiet) || words.length > chars ? null : words;
+	};
+	/** Where an item ends if its label gets all the room it would like. Finished work asks for none. */
+	const wanted = (item: Item) => {
+		const label = item.nodes.every(quiet) ? null : labelFor(item, LABEL_MAX);
+		return markRight(item) + (label ? gap + label.length * CHAR_W : 0);
+	};
+
+	const rows: Item[][] = [];
 	for (const node of lane.nodes) {
-		const nx = x(node.at);
-		const cur = groups[groups.length - 1];
-		if (cur && nx - cur.first < GAP) cur.nodes.push(node);
-		else groups.push({ first: nx, nodes: [node] });
+		const nx = Math.round(x(node.at));
+		const left = nx - nodeW / 2;
+		const last = rows.map((r) => r.at(-1)!);
+		let row = last.findIndex((item) => wanted(item) + gap <= left);
+		if (row < 0 && rows.length < maxRows) row = rows.length;
+		if (row < 0) {
+			const clear = last.filter((item) => markRight(item) + gap <= left);
+			if (clear.length) row = clear.reduce((a, b) => (b.x < a.x ? b : a)).row;
+		}
+		if (row < 0) last.reduce((a, b) => (b.x > a.x ? b : a)).nodes.push(node);
+		else (rows[row] ??= []).push({ x: nx, row, nodes: [node] });
 	}
-	return groups.map((g) => ({
-		key: g.nodes[0].id,
-		x: Math.round(g.first),
-		nodes: g.nodes,
-		state: mostUrgent(g.nodes.map((n) => n.state)),
-		stage: g.nodes.length === 1 ? g.nodes[0].stage : null,
-		label: g.nodes.length === 1 ? g.nodes[0].label : `${g.nodes.length} ${lane.kind === 'unsorted' ? 'items' : 'tickets'}`
-	}));
+
+	return rows
+		.flatMap((items) =>
+			items.map((item, i): Cluster => {
+				const next = items[i + 1];
+				const start = markRight(item) + gap;
+				// S-36: a name gets the room up to the next item in its row
+				const chars = next ? Math.floor((markLeft(next) - gap - start) / CHAR_W) : LABEL_MAX;
+				const label = labelFor(item, chars);
+				const [first] = item.nodes;
+				const state = mostUrgent(item.nodes.map((n) => n.state));
+				const count = `${item.nodes.length} ${unsorted ? 'items' : 'tickets'}`;
+				return {
+					key: first.id,
+					x: item.x,
+					row: item.row,
+					nodes: item.nodes,
+					state,
+					stage: item.nodes.length === 1 ? first.stage : null,
+					quiet: item.nodes.every(quiet),
+					label,
+					title: item.nodes.length === 1 ? `${names(first).name}, ${STATE_WORDS[first.state]}` : `${count}, most urgent: ${STATE_WORDS[state]}`,
+					left: markLeft(item),
+					right: label ? start + label.length * CHAR_W : markRight(item),
+					markX: (markLeft(item) + markRight(item)) / 2,
+					labelX: start
+				};
+			})
+		)
+		.sort((a, b) => a.x - b.x || a.row - b.row);
 }
 
 function statusText(lane: Lane): { status: string; urgent: boolean } {
-	if (lane.closed) return { status: 'finished', urgent: false };
-	const n = (s: NodeState) => lane.nodes.filter((node) => node.state === s).length;
+	if (lane.closed) {
+		const n = lane.nodes.length;
+		return { status: n ? `finished · ${n} ${n === 1 ? 'ticket' : 'tickets'}` : 'finished', urgent: false };
+	}
+	const n = (s: NodeState) => lane.nodes.filter((node) => node.state === s && !past(node)).length;
 	const parts = [
 		n('needs') && `${n('needs')} ${n('needs') === 1 ? 'needs' : 'need'} you`,
 		n('failed') && `${n('failed')} failed`,
@@ -111,7 +267,15 @@ function statusText(lane: Lane): { status: string; urgent: boolean } {
 	return { status: parts.join(' · ') || 'nothing waiting', urgent: n('needs') > 0 };
 }
 
-export function layout(graph: Graph, now: number, pxPerDay: number, hideFinished = false): Layout {
+/** `unfolded` holds the ids of the finished lanes that are drawn in full (S-16). */
+export function layout(
+	graph: Graph,
+	now: number,
+	pxPerDay: number,
+	hideFinished = false,
+	maxRows = MAX_ROWS,
+	unfolded: ReadonlySet<string> = new Set()
+): Layout {
 	const all = graph.lanes.flatMap((l) => l.nodes);
 	const first = all.length ? Math.min(...all.map((n) => Date.parse(n.at))) : now - 7 * DAY;
 	const t0 = startOfDay(first) - DAY;
@@ -120,19 +284,26 @@ export function layout(graph: Graph, now: number, pxPerDay: number, hideFinished
 
 	const visible = graph.lanes.filter((l) => !(hideFinished && l.closed)); // S-13
 	const boxes = new Map<string, LaneBox>();
-	const lanes = visible.map((lane, row) => {
-		const cs = clusters(lane, x);
+	let y = AXIS_H;
+	const lanes = visible.map((lane) => {
+		const folded = lane.closed && !unfolded.has(lane.id);
+		const cs = place(lane, x, maxRows, folded);
 		const xs = lane.nodes.map((n) => x(n.at));
+		const rows = Math.max(1, ...cs.map((c) => c.row + 1));
 		// A trunk with no tickets of its own gets its extent from its branches, below.
 		const box: LaneBox = {
 			lane,
-			y: AXIS_H + row * LANE_H,
+			y,
+			height: folded ? FOLD_H : LANE_H + (rows - 1) * ROW_H,
+			lineY: folded ? FOLD_LINE_Y : LINE_Y,
+			folded,
 			clusters: cs,
 			lineLeft: Math.round(Math.min(...xs, Infinity)),
 			lineRight: lane.closed ? Math.round(Math.max(...xs, -Infinity)) : nowX,
 			...statusText(lane)
 		};
 		boxes.set(lane.id, box);
+		y += box.height;
 		return box;
 	});
 
@@ -145,7 +316,8 @@ export function layout(graph: Graph, now: number, pxPerDay: number, hideFinished
 		const elbow = box.lineLeft - ELBOW;
 		trunk.lineLeft = Math.min(trunk.lineLeft, elbow);
 		trunk.lineRight = Math.max(trunk.lineRight, box.lineRight);
-		connectors.push({ left: elbow, top: trunk.y + LINE_Y, width: ELBOW, height: box.y - trunk.y });
+		const top = trunk.y + trunk.lineY;
+		connectors.push({ left: elbow, top, width: ELBOW, height: box.y + box.lineY - top });
 	}
 
 	// One labelled tick per day when there is room, otherwise one per week.
@@ -164,17 +336,68 @@ export function layout(graph: Graph, now: number, pxPerDay: number, hideFinished
 		ticks.push({ x: tx, label: labelled ? dayLabel(t) : null });
 	}
 
-	const count = (s: NodeState) => visible.reduce((sum, l) => sum + l.nodes.filter((n) => n.state === s).length, 0);
+	const count = (s: NodeState) => visible.reduce((sum, l) => sum + l.nodes.filter((n) => inState(n, s)).length, 0);
 
 	return {
 		width: nowX + 260,
-		height: AXIS_H + lanes.length * LANE_H + 32,
+		height: y + 32,
 		nowX,
 		nowLabel,
 		lanes,
 		connectors,
 		ticks,
-		counts: { needs: count('needs'), working: count('working'), review: count('review'), failed: count('failed') },
+		counts: { needs: count('needs'), working: count('working'), review: count('review'), failed: count('failed'), open: count('open') },
 		t0
+	};
+}
+
+/**
+ * The next node in `state` after the one with id `after`, top lane first, wrapping round (S-15).
+ * With no `after`, or one that is not in that state, the first.
+ */
+export function nextInState(view: Layout, state: NodeState, after: string | null): GraphNode | null {
+	const targets = view.lanes.flatMap((box) => box.lane.nodes).filter((n) => inState(n, state));
+	if (!targets.length) return null;
+	return targets[(targets.findIndex((n) => n.id === after) + 1) % targets.length];
+}
+
+/**
+ * Everything that is not finished, most urgent first and then longest open first (S-19).
+ * This is the short answer to "what was I doing".
+ */
+export function unfinished(graph: Graph): { node: GraphNode; lane: Lane }[] {
+	const rank = (n: GraphNode) => STATE_ORDER.indexOf(n.state);
+	return graph.lanes
+		.flatMap((lane) => lane.nodes.filter((node) => !quiet(node)).map((node) => ({ node, lane })))
+		.sort((a, b) => rank(a.node) - rank(b.node) || a.node.at.localeCompare(b.node.at));
+}
+
+/** Zoom limits, in pixels per day. */
+export const MIN_ZOOM = 12;
+export const MAX_ZOOM = 1600;
+
+export interface SavedView {
+	pxPerDay: number;
+	hideFinished: boolean;
+	unfolded: string[];
+}
+
+/**
+ * The view as it was last left, from what was stored (S-78). Anything missing, damaged
+ * or out of range falls back to how a first visit looks.
+ */
+export function restoreView(stored: string | null): SavedView {
+	let raw: Partial<Record<keyof SavedView, unknown>> = {};
+	try {
+		const parsed: unknown = JSON.parse(stored ?? '{}');
+		if (typeof parsed === 'object' && parsed !== null) raw = parsed;
+	} catch {
+		// not JSON
+	}
+	const zoom = raw.pxPerDay;
+	return {
+		pxPerDay: typeof zoom === 'number' && zoom >= MIN_ZOOM && zoom <= MAX_ZOOM ? zoom : 160,
+		hideFinished: raw.hideFinished === true,
+		unfolded: Array.isArray(raw.unfolded) ? raw.unfolded.filter((id): id is string => typeof id === 'string').slice(0, 200) : []
 	};
 }

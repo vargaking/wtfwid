@@ -81,6 +81,33 @@ describe('linking', () => {
 	});
 });
 
+describe('nodes', () => {
+	it('S-30 S-31 draws one node per ticket, shaped by how far it got', () => {
+		const made = nodes(
+			snap({
+				issues: [issue(1), issue(2), issue(3)],
+				sessions: [session('a', { name: 'ENG-2 fix' }), session('b', { name: 'ENG-3 fix' }), session('c', { name: 'eng-3 again' })],
+				prs: [pr(7, { branch: 'eng-3-ticket-3' })]
+			})
+		);
+		expect(made.map((n) => [n.id, n.stage, n.sessions.length, n.prs.length])).toEqual([
+			['ENG-1', 'ticket', 0, 0],
+			['ENG-2', 'session', 1, 0],
+			['ENG-3', 'pr', 2, 1]
+		]);
+	});
+});
+
+describe('the same thing twice', () => {
+	it('S-30 draws a node once when a source hands it back twice', () => {
+		// a repository listed twice, or a pull request that moved between two pages while they were read
+		const twice = snap({ issues: [issue(1), issue(1)], sessions: [session('a'), session('a')], prs: [pr(7), pr(7), pr(7, { repo: 'O/R' })] });
+		const ids = nodes(twice).map((n) => n.id);
+		expect(ids).toEqual(['ENG-1', 'session:a', 'pr:o/r#7']);
+		expect(new Set(ids).size).toBe(ids.length);
+	});
+});
+
 describe('which tickets appear', () => {
 	it('S-32 hides untouched backlog but shows it once a session exists', () => {
 		const backlog = issue(1, { startedAt: null, stateName: 'Backlog', stateType: 'backlog' });
@@ -136,7 +163,7 @@ describe('lines', () => {
 	];
 	const graph = buildGraph(snap({ issues }));
 
-	it('S-20 S-21 S-22 makes a trunk per project and a branch per milestone', () => {
+	it('S-11 S-20 S-21 S-22 makes a trunk per project and a branch per milestone', () => {
 		expect(graph.lanes.map((l) => [l.name, l.kind, l.parent])).toEqual([
 			['Old', 'project', null],
 			['Web', 'project', null],
