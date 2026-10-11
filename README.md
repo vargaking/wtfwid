@@ -11,6 +11,7 @@ timeline, with the state of the Claude Code session and the pull request behind 
 - A node is a ticket. A circle is a ticket alone, a square has a Claude Code session, a diamond has a pull request.
 - Colour is state: amber needs you, blue is working, green is ready for review, red failed, faded is done.
 - Time runs left to right with no window. Drag to pan, ctrl/cmd + wheel to zoom.
+- A strip under the timeline shows all of time at once: bars for how much started when, coloured where something is unfinished, and a window around the part you are looking at. Click or drag it to go there.
 - Tickets too close to draw apart merge into a counted cluster, coloured by the most urgent one in it.
 
 It only reads. It changes nothing in Linear, GitHub or Claude Code.

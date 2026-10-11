@@ -2,6 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { MAX_ZOOM, MIN_ZOOM, ROW_H, tOf, xOf, type Cluster, type Layout } from './layout';
 	import Mark from './Mark.svelte';
+	import Overview from './Overview.svelte';
 
 	interface Props {
 		view: Layout;
@@ -79,6 +80,8 @@
 	const isPicked = (c: Cluster) => c.nodes.some((n) => picked.includes(n.id));
 </script>
 
+<!-- S-80: the timeline, and under it the strip that shows all of time. The inner block is the timeline as it was. -->
+<div class="flex min-w-0 flex-1 flex-col">
 <div class="relative min-h-80 min-w-0 flex-1">
 	<section
 		bind:this={viewport}
@@ -186,4 +189,6 @@
 		<button type="button" aria-label="Zoom out" class="h-11 w-11 border-l border-rail text-lg hover:bg-edge" onclick={() => zoom(1 / 1.5)}>−</button>
 		<button type="button" aria-label="Zoom in" class="h-11 w-11 border-l border-rail text-lg hover:bg-edge" onclick={() => zoom(1.5)}>+</button>
 	</div>
+</div>
+<Overview {view} scroller={() => viewport} onnow={toNow} />
 </div>
