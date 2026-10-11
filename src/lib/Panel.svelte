@@ -24,32 +24,45 @@
 	const SESSION_LABEL = { needs: 'waiting for you', working: 'working', failed: 'failed', open: 'idle', done: 'finished' };
 
 	// S-55: what each session of the open ticket was doing, read from its transcript on demand.
-	let notes = $state<Record<string, SessionNote>>({});
+	// For each session: its note, null when its transcript is gone, nothing yet while it is being read.
+	let notes = $state<Record<string, SessionNote | null>>({});
 	let expanded = $state<Record<string, boolean>>({});
 	const settled = new Set<string>();
+	/** Sessions whose note has been asked for and answered, one way or the other. */
+	let answered = $state<Record<string, true>>({});
 	$effect(() => {
 		for (const s of focus?.sessions ?? []) {
 			if (settled.has(s.id)) continue;
-			if (s.gone) settled.add(s.id); // an ended session's transcript no longer changes
 			fetch(`/api/session/${encodeURIComponent(s.id)}`)
-				.then((r) => (r.ok ? r.json() : null))
-				.then((note: SessionNote | null) => {
-					if (note) notes[s.id] = note;
+				.then((r) => {
+					if (r.ok) return r.json() as Promise<SessionNote>;
+					if (r.status === 404) return null;
+					throw new Error(`HTTP ${r.status}`);
 				})
-				.catch(() => {});
+				.then((note) => {
+					notes[s.id] = note;
+					// an ended session's transcript no longer changes; a failed read is tried again next time
+					if (s.gone) settled.add(s.id);
+				})
+				.catch(() => {})
+				.finally(() => (answered[s.id] = true));
 		}
 	});
+	/** The context for a new session is only complete once every session's note is in (S-57). */
+	const reading = $derived(focus?.sessions.some((s) => !answered[s.id]) ?? false);
 
 	// S-57, S-59: which copy button was pressed last, so it can say so for a moment
 	let copied = $state<string | null>(null);
+	let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 	async function copy(key: string, text: string) {
+		clearTimeout(copiedTimer); // an earlier press must not wipe what this one is about to show
 		try {
 			await navigator.clipboard.writeText(text);
 			copied = key;
 		} catch {
 			copied = `${key}:failed`; // no clipboard here: the text is shown instead, to copy by hand
 		}
-		setTimeout(() => (copied = null), copied?.endsWith(':failed') ? 20_000 : 1600);
+		copiedTimer = setTimeout(() => (copied = null), copied?.endsWith(':failed') ? 20_000 : 1600);
 	}
 
 	function when(iso: string | null): string {
@@ -181,10 +194,11 @@
 			{@render heading('Pick it up again')}
 			<button
 				type="button"
-				class="mt-2.5 inline-flex min-h-11 items-center rounded-md border border-rail px-3.5 hover:bg-edge"
+				class="mt-2.5 inline-flex min-h-11 items-center rounded-md border border-rail px-3.5 hover:bg-edge disabled:text-muted disabled:hover:bg-transparent"
+				disabled={reading}
 				onclick={() => copy(`pack:${focus.id}`, contextPack(focus, notes))}
 			>
-				{copied === `pack:${focus.id}` ? 'Copied' : 'Copy context for a new session'}
+				{reading ? 'Reading its sessions…' : copied === `pack:${focus.id}` ? 'Copied' : 'Copy context for a new session'}
 			</button>
 			{#if copied === `pack:${focus.id}:failed`}
 				<textarea id="context-pack" readonly rows="8" class="mt-2 block w-full rounded-md border border-rail bg-ground p-2 font-mono text-xs text-muted">{contextPack(focus, notes)}</textarea>

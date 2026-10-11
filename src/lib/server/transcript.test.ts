@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildGraph } from '../graph';
 import type { Issue, Session } from '../model';
-import { collectSessions } from './sessions';
+import { collectSessions, knownSession } from './sessions';
 import { findTranscript, lastBranch, noteFrom, readNote } from './transcript';
 
 // Lines in the shape Claude Code 2.1.296 writes them. The words are made up.
@@ -47,6 +47,29 @@ describe('session transcripts', () => {
 		});
 	});
 
+	it('S-55 finds the prompt behind what Claude Code put in front of it', () => {
+		// the shape real prompts have: a reminder block first, then the words
+		const prompt = (text: string, more = {}) => typed([{ type: 'text', text: '<system-reminder>The time is 02:58.</system-reminder>' }, { type: 'text', text }], more);
+		const note = noteFrom([prompt('Btw, a project idea'), said([{ type: 'text', text: 'ok' }], '2026-10-10T09:05:00.000Z'), prompt('go crazy, you have all night')]);
+		expect(note).toMatchObject({ firstPrompt: 'Btw, a project idea', lastPrompt: 'go crazy, you have all night' });
+		// in one block, with several things in front
+		expect(noteFrom([typed('<ide_opened_file>a.ts</ide_opened_file>\n<system-reminder>x</system-reminder>\n<marker/>fix the login')]).firstPrompt).toBe('fix the login');
+	});
+
+	it('S-55 keeps a prompt that only looks like markup, and skips what no person typed', () => {
+		expect(noteFrom([typed('<div> does not center, why?')]).firstPrompt).toBe('<div> does not center, why?');
+		expect(noteFrom([typed('<Button> is misaligned in <Header>')]).firstPrompt).toBe('<Button> is misaligned in <Header>');
+		expect(noteFrom([typed('<task-notification>3 unread</task-notification>'), typed('queued', { origin: { kind: 'task-notification' } })]).firstPrompt).toBeNull();
+		expect(noteFrom([typed('really typed', { origin: { kind: 'human' } })]).firstPrompt).toBe('really typed');
+	});
+
+	it('S-55 takes whichever came last, the prompt or the marker Claude Code writes after it', () => {
+		// the marker for a prompt arrives a few entries later; until then it still names the one before
+		const lines = [typed('first'), lastPrompt('first'), typed('second'), said([{ type: 'text', text: 'working on it' }], '2026-10-10T09:05:00.000Z')];
+		expect(noteFrom(lines).lastPrompt).toBe('second');
+		expect(noteFrom([...lines, lastPrompt('second')]).lastPrompt).toBe('second');
+	});
+
 	it('S-55 uses the last thing typed when the transcript does not mark a last prompt', () => {
 		const note = noteFrom(LINES.filter((l) => !l.includes('"last-prompt"')));
 		expect(note.lastPrompt).toBe('ok do the ice restart');
@@ -82,6 +105,34 @@ describe('session transcripts', () => {
 		expect(await findTranscript(ID, '/home/dev/app', root)).toBe(join(root, 'projects', 'somewhere-else', `${ID}.jsonl`));
 		expect(await findTranscript('00000000-0000-4000-8000-000000000000', '/home/dev/app', root)).toBeNull();
 		expect(await findTranscript(ID, '/home/dev/app', join(root, 'missing'))).toBeNull();
+	});
+
+	it('S-55 reads the file written to last when a session has one in two folders', async () => {
+		const root = await claudeDir('-home-dev', [typed('from the first folder')]);
+		await mkdir(join(root, 'projects', '-home-dev-app'), { recursive: true });
+		const later = join(root, 'projects', '-home-dev-app', `${ID}.jsonl`);
+		await writeFile(later, typed('from the second folder') + '\n');
+		await utimes(later, new Date(), new Date(Date.now() + 60_000));
+		// whichever folder the working directory points at
+		expect(await findTranscript(ID, '/home/dev', root)).toBe(later);
+		expect(await findTranscript(ID, '/home/dev/app', root)).toBe(later);
+		expect(await findTranscript(ID, '/somewhere/else', root)).toBe(later);
+	});
+
+	it('S-53 looks a session up without tripping over a damaged file', async () => {
+		const home = await mkdtemp(join(tmpdir(), 'wtfwid-'));
+		expect(await knownSession(home, ID)).toBeUndefined();
+		await writeFile(join(home, 'sessions.json'), '[{"id":"' + ID + '","cwd":"/r"');
+		expect(await knownSession(home, ID)).toBeUndefined();
+		await writeFile(join(home, 'sessions.json'), '{"not":"a list"}');
+		expect(await knownSession(home, ID)).toBeUndefined();
+		// a refresh refuses to carry on over a file it cannot read, and leaves it as it is
+		await expect(collectSessions(home, async () => [session()], join(home, 'no-claude'))).rejects.toThrow('does not hold a list of sessions');
+		expect(await readFile(join(home, 'sessions.json'), 'utf8')).toBe('{"not":"a list"}');
+		await writeFile(join(home, 'sessions.json'), '[]');
+		await collectSessions(home, async () => [session()], join(home, 'no-claude'));
+		expect((await knownSession(home, ID))?.cwd).toBe('/home/dev/app');
+		expect((await readdir(home)).sort()).toEqual(['sessions.json']);
 	});
 
 	it('S-55 never turns a session id into a path outside the transcripts', async () => {

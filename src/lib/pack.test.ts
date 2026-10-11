@@ -28,6 +28,12 @@ describe('picking work up again', () => {
 		expect(resumeCommand(session({ cwd: "/home/dev/it's $HOME; rm" }))).toBe(`cd '/home/dev/it'\\''s $HOME; rm' && claude --resume ${ID}`);
 	});
 
+	it('S-59 writes the command for PowerShell when the folder is a Windows one', () => {
+		expect(resumeCommand(session({ cwd: 'C:\\Users\\me\\my app' }))).toBe(`cd 'C:\\Users\\me\\my app'; claude --resume ${ID}`);
+		expect(resumeCommand(session({ cwd: "D:/work/it's" }))).toBe(`cd 'D:/work/it''s'; claude --resume ${ID}`);
+		expect(resumeCommand(session({ cwd: '\\\\server\\share\\app' }))).toBe(`cd '\\\\server\\share\\app'; claude --resume ${ID}`);
+	});
+
 	it('S-59 offers nothing for a session that has no real id', () => {
 		expect(resumeCommand(session({ id: '/home/dev/app@1791660811649' }))).toBeNull();
 		expect(resumeCommand(session({ id: `${ID}; rm -rf ~` }))).toBeNull();
@@ -64,9 +70,15 @@ describe('picking work up again', () => {
 	});
 
 	it('S-57 says so when a session left no transcript, and still packs the rest', () => {
-		const pack = contextPack(ticket(), {});
+		const pack = contextPack(ticket(), { [ID]: null });
 		expect(pack).toContain('Its transcript is not on this machine any more.');
 		expect(pack).toContain('- Pull request: #118');
+	});
+
+	it('S-57 does not call a transcript gone when it only could not be read', () => {
+		const pack = contextPack(ticket(), {});
+		expect(pack).toContain('Its transcript could not be read just now.');
+		expect(pack).not.toContain('not on this machine');
 	});
 
 	it('S-57 works for a session with no ticket', () => {
