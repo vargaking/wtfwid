@@ -43,7 +43,7 @@
 	<h3 class="mt-5 font-mono text-xs font-medium tracking-[0.08em] text-muted uppercase">{text}</h3>
 {/snippet}
 
-<aside aria-label="Selected ticket" class="box-border w-full flex-none overflow-y-auto border-t border-edge px-6 pt-5 pb-7 md:w-80 md:border-t-0 md:border-l">
+<aside id="ticket-panel" tabindex="-1" aria-label="Selected ticket" class="outline-none box-border w-full flex-none overflow-y-auto border-t border-edge px-6 pt-5 pb-7 md:w-80 md:border-t-0 md:border-l">
 	{#if focus}
 		{#if nodes.length > 1}
 			<button type="button" class="mb-3 -ml-2 min-h-11 rounded px-2 text-muted hover:text-ink" onclick={() => onfocus(null)}>
