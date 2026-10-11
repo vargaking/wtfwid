@@ -22,6 +22,15 @@
 	};
 	const SESSION_LABEL = { needs: 'waiting for you', working: 'working', failed: 'failed', open: 'idle', done: 'finished' };
 
+	/** How long ago, in the roughest unit that says enough. */
+	function ago(iso: string): string {
+		const hours = (Date.now() - Date.parse(iso)) / 3_600_000;
+		if (hours < 1) return 'less than an hour ago';
+		if (hours < 24) return `${Math.floor(hours)} h ago`;
+		const days = Math.floor(hours / 24);
+		return days === 1 ? 'yesterday' : `${days} days ago`;
+	}
+
 	function when(iso: string | null): string {
 		if (!iso) return '';
 		const d = new Date(iso);
@@ -54,7 +63,10 @@
 		<dl class="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
 			{#if focus.startedAt}
 				<dt class="text-muted">Started</dt>
-				<dd>{when(focus.startedAt)}</dd>
+				<dd>
+					{when(focus.startedAt)}
+					{#if focus.state !== 'done'}<span class="text-muted">· {ago(focus.startedAt)}</span>{/if}
+				</dd>
 			{/if}
 			{#if focus.completedAt}
 				<dt class="text-muted">Completed</dt>

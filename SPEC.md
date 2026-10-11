@@ -25,8 +25,9 @@ Tests name the statements they cover (`S-…` in the test title).
 - **S-12** stated — Finished features stay in place on the timeline. There is no separate "closed" section.
 - **S-13** assumed — Finished lines are drawn faded and folded (S-16), and one button hides them altogether.
 - **S-14** assumed — The view opens scrolled to now. Zoom changes pixels per day (buttons, or ctrl/cmd + wheel).
-- **S-15** assumed — The counts in the header are buttons. Each one scrolls to the next ticket in that state and opens it, going round. A "now" button scrolls back to now. Reason: with stacked rows the timeline is taller than the window, and a ticket that needs you can be off screen.
+- **S-15** assumed — The counts in the header are buttons. Each one scrolls to the next ticket in that state and opens it, going round. A "now" button scrolls back to now. Reason: with stacked rows the timeline is taller than the window, and a ticket that needs you can be off screen. The counts include **open**: started, not finished, nothing running on it. For those the side panel also says how long ago they were started.
 - **S-16** assumed — A finished line is folded: a thin strip with one row of small marks and no names, so history keeps its place without taking the room. Clicking the line's name unfolds it; clicking again folds it. Reason: with stacked rows (S-35) a line is as tall as its busiest moment, and most lines are finished.
+- **S-17** assumed — A search box in the header finds tickets by ID, number or words in the title; `/` puts the cursor in it. Choosing a result scrolls to the ticket and opens it, unfolding or unhiding its line first if it is finished.
 
 ## What a line is
 

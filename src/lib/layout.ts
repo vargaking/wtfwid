@@ -82,7 +82,7 @@ export interface Layout {
 	lanes: LaneBox[];
 	connectors: Connector[];
 	ticks: Tick[];
-	counts: Record<'needs' | 'working' | 'review' | 'failed', number>;
+	counts: Record<'needs' | 'working' | 'review' | 'failed' | 'open', number>;
 	/** Time at the left edge of the timeline; with xOf / tOf it maps time to x and back. */
 	t0: number;
 }
@@ -304,7 +304,7 @@ export function layout(
 		lanes,
 		connectors,
 		ticks,
-		counts: { needs: count('needs'), working: count('working'), review: count('review'), failed: count('failed') },
+		counts: { needs: count('needs'), working: count('working'), review: count('review'), failed: count('failed'), open: count('open') },
 		t0
 	};
 }

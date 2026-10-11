@@ -161,7 +161,7 @@ describe('lines and branches', () => {
 	});
 
 	it('counts states for the header', () => {
-		expect(view.counts).toEqual({ needs: 0, working: 1, review: 0, failed: 0 });
+		expect(view.counts).toEqual({ needs: 0, working: 1, review: 0, failed: 0, open: 0 });
 	});
 
 	it('S-20 gives a trunk with no tickets of its own the extent of its milestones', () => {
@@ -212,6 +212,13 @@ describe('jumping', () => {
 		// something else is open: start from the first
 		expect(nextInState(view, 'needs', 'a2')?.id).toBe('a1');
 		expect(nextInState(view, 'failed', null)).toBeNull();
+	});
+
+	it('S-15 counts work that is started and has nothing running on it', () => {
+		const idle = graph([lane('a', [node('a1', '2026-10-02T09:00:00.000Z', 'open'), node('a2', '2026-10-09T09:00:00.000Z', 'done')])]);
+		const v = layout(idle, NOW, 160);
+		expect(v.counts.open).toBe(1);
+		expect(nextInState(v, 'open', null)?.id).toBe('a1');
 	});
 
 	it('S-15 skips lanes that are hidden', () => {

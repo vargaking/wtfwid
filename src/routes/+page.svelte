@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { goto, refreshAll } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import LaneView from '#lib/LaneView.svelte';
 	import { layout, nextInState, type Cluster } from '#lib/layout.ts';
 	import Mark from '#lib/Mark.svelte';
-	import type { GraphNode, NodeState } from '#lib/model.ts';
+	import type { GraphNode, Lane, NodeState } from '#lib/model.ts';
 	import Panel from '#lib/Panel.svelte';
+	import Search from '#lib/Search.svelte';
 	import Settings from '#lib/Settings.svelte';
 	import Welcome from '#lib/Welcome.svelte';
 	import type { PageProps } from './$types';
@@ -38,18 +39,29 @@
 		{ state: 'needs', tone: 'text-needs', text: (n: number) => `${n} ${n === 1 ? 'needs' : 'need'} you` },
 		{ state: 'working', tone: 'text-working', text: (n: number) => `${n} working` },
 		{ state: 'review', tone: 'text-review', text: (n: number) => `${n} ready for review` },
-		{ state: 'failed', tone: 'text-failed', text: (n: number) => `${n} failed` }
+		{ state: 'failed', tone: 'text-failed', text: (n: number) => `${n} failed` },
+		// started and not finished, with nothing running on it: the easiest kind to forget
+		{ state: 'open', tone: 'text-ink', text: (n: number) => `${n} open` }
 	] as const;
 
 	let timeline = $state<LaneView>();
 
+	/** Shows a ticket: unfolds or unhides its line if need be, selects it and scrolls to it. */
+	async function show(node: GraphNode, lane: Lane | undefined) {
+		if (lane?.closed) {
+			hideFinished = false;
+			if (!unfolded.includes(lane.id)) unfolded = [...unfolded, lane.id];
+		}
+		picked = [node.id];
+		focusId = null;
+		await tick();
+		timeline?.reveal(node.id);
+	}
+
 	/** S-15: go to the next ticket in this state, after the one that is open, and open it. */
 	function jump(state: NodeState) {
 		const next = nextInState(view, state, focus?.id ?? null);
-		if (!next) return;
-		picked = [next.id];
-		focusId = null;
-		timeline?.reveal(next.id);
+		if (next) show(next, undefined);
 	}
 
 	// After settings change: leave the demo if we were in it, and load again. Always fetch
@@ -95,6 +107,9 @@
 			{#if graph.demo}
 				<span class="rounded border border-rail px-2 py-0.5 font-mono text-xs">demo data</span>
 				<a class="underline underline-offset-2 hover:text-ink" href="/">leave demo</a>
+			{/if}
+			{#if graph.lanes.length}
+				<Search lanes={graph.lanes} onchoose={(hit) => show(hit.node, hit.lane)} />
 			{/if}
 			<button
 				type="button"
