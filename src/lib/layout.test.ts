@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AXIS_H, DAY, FOLD_H, FOLD_LINE_Y, LANE_H, LINE_Y, MAX_ROWS, ROW_H, layout, nextInState } from './layout';
+import { AXIS_H, DAY, FOLD_H, FOLD_LINE_Y, LANE_H, LINE_Y, MAX_ROWS, ROW_H, layout, nextInState, unfinished } from './layout';
 import type { Graph, GraphNode, Lane, NodeState } from './model';
 
 const NOW = Date.parse('2026-10-10T12:00:00.000Z');
@@ -233,5 +233,31 @@ describe('jumping', () => {
 	it('S-15 skips lanes that are hidden', () => {
 		expect(nextInState(view, 'done', null)?.id).toBe('c1');
 		expect(nextInState(layout(g, NOW, 160, true), 'done', null)).toBeNull();
+	});
+});
+
+describe('unfinished', () => {
+	const ended = { ...node('session:s1', '2026-10-03T09:00:00.000Z', 'open'), status: null, sessions: [{ id: 's1', name: 'scratch', cwd: '/r', kind: 'interactive' as const, startedAt: '2026-10-03T09:00:00.000Z', state: 'open' as const, waitingFor: null, gone: true }] };
+	const g = graph([
+		lane('a', [node('old-open', '2026-10-02T09:00:00.000Z', 'open'), node('done', '2026-10-05T09:00:00.000Z'), node('review', '2026-10-08T09:00:00.000Z', 'review')]),
+		lane('b', [node('new-open', '2026-10-09T09:00:00.000Z', 'open'), node('needs', '2026-10-09T10:00:00.000Z', 'needs'), node('working', '2026-10-07T09:00:00.000Z', 'working')]),
+		lane('unsorted', [ended], { kind: 'unsorted' })
+	]);
+
+	it('S-19 lists what is not finished, most urgent first and then longest open first', () => {
+		expect(unfinished(g).map((u) => [u.node.id, u.lane.id])).toEqual([
+			['needs', 'b'],
+			['working', 'b'],
+			['review', 'a'],
+			['old-open', 'a'],
+			['new-open', 'b']
+		]);
+	});
+
+	it('S-19 leaves out finished tickets and sessions that ended without one', () => {
+		const ids = unfinished(g).map((u) => u.node.id);
+		expect(ids).not.toContain('done');
+		expect(ids).not.toContain('session:s1');
+		expect(unfinished(graph([lane('a', [node('done', '2026-10-05T09:00:00.000Z')])]))).toEqual([]);
 	});
 });

@@ -2,7 +2,7 @@
 	import { goto, refreshAll } from '$app/navigation';
 	import { onMount, tick, untrack } from 'svelte';
 	import LaneView from '#lib/LaneView.svelte';
-	import { layout, nextInState, type Cluster } from '#lib/layout.ts';
+	import { layout, nextInState, unfinished, type Cluster } from '#lib/layout.ts';
 	import type { Graph, GraphNode, Lane, NodeState } from '#lib/model.ts';
 	import { alerts, type Alert } from '#lib/notify.ts';
 	import Panel from '#lib/Panel.svelte';
@@ -29,9 +29,15 @@
 	const pickedNodes = $derived(picked.map((id) => byId.get(id)).filter((n): n is GraphNode => !!n));
 	const focus = $derived((focusId && byId.get(focusId)) || (pickedNodes.length === 1 ? pickedNodes[0] : null));
 	const updated = $derived(new Date(now).toTimeString().slice(0, 5));
+	const left = $derived(unfinished(graph));
 
 	function pick(cluster: Cluster) {
 		picked = cluster.nodes.map((n) => n.id);
+		focusId = null;
+	}
+
+	function clear() {
+		picked = [];
 		focusId = null;
 	}
 
@@ -149,6 +155,13 @@
 	<title>{!graph.setup && view.counts.needs ? `(${view.counts.needs}) ` : ''}wtfwid</title>
 </svelte:head>
 
+<!-- Escape lets go of the selected ticket, unless a dialog or the search box wants the key -->
+<svelte:window
+	onkeydown={(e) => {
+		if (e.key === 'Escape' && !settingsOpen && !(document.activeElement instanceof HTMLInputElement)) clear();
+	}}
+/>
+
 {#if graph.setup}
 	<Welcome onsaved={reload} />
 {:else}
@@ -221,7 +234,14 @@
 	<main class="flex min-h-0 flex-1 flex-col md:flex-row">
 		{#if graph.lanes.length}
 			<LaneView bind:this={timeline} {view} bind:pxPerDay {picked} onpick={pick} onfold={fold} />
-			<Panel nodes={pickedNodes} {focus} onfocus={(id) => (focusId = id)} />
+			<Panel
+				nodes={pickedNodes}
+				{focus}
+				onfocus={(id) => (focusId = id)}
+				unfinished={left.map((u) => u.node)}
+				onshow={(node) => show(node, left.find((u) => u.node.id === node.id)?.lane)}
+				onclear={clear}
+			/>
 		{:else}
 			<div class="flex flex-1 items-center justify-center px-6 text-center">
 				<div class="max-w-md">

@@ -9,8 +9,16 @@
 		/** the one node shown in detail, if any */
 		focus: GraphNode | null;
 		onfocus: (id: string | null) => void;
+		/** what is not finished, shown when nothing is selected (S-19) */
+		unfinished: GraphNode[];
+		onshow: (node: GraphNode) => void;
+		/** back to nothing selected */
+		onclear: () => void;
 	}
-	let { nodes, focus, onfocus }: Props = $props();
+	let { nodes, focus, onfocus, unfinished, onshow, onclear }: Props = $props();
+
+	/** At most this many unfinished tickets are listed; the rest are counted. */
+	const LISTED = 10;
 
 	const STATE_LABEL: Record<NodeState, string> = {
 		needs: 'Needs you',
@@ -31,6 +39,12 @@
 		return days === 1 ? 'yesterday' : `${days} days ago`;
 	}
 
+	/** How long something has been going, as short as it can be said. */
+	function age(iso: string): string {
+		const hours = (Date.now() - Date.parse(iso)) / 3_600_000;
+		return hours < 1 ? 'under 1 h' : hours < 24 ? `${Math.floor(hours)} h` : `${Math.floor(hours / 24)} d`;
+	}
+
 	function when(iso: string | null): string {
 		if (!iso) return '';
 		const d = new Date(iso);
@@ -48,6 +62,10 @@
 		{#if nodes.length > 1}
 			<button type="button" class="mb-3 -ml-2 min-h-11 rounded px-2 text-muted hover:text-ink" onclick={() => onfocus(null)}>
 				← all {nodes.length}
+			</button>
+		{:else if unfinished.length}
+			<button type="button" class="mb-3 -ml-2 min-h-11 rounded px-2 text-muted hover:text-ink" onclick={onclear}>
+				← unfinished
 			</button>
 		{/if}
 		<div class="font-mono text-xs tracking-[0.08em] text-muted uppercase">
@@ -126,7 +144,29 @@
 				</li>
 			{/each}
 		</ul>
+	{:else if unfinished.length}
+		<!-- S-19: nothing selected, so answer the question the app is named after -->
+		<h2 class="text-xl font-semibold">Unfinished <span class="font-normal text-muted">{unfinished.length}</span></h2>
+		<ul class="mt-3 -ml-2">
+			{#each unfinished.slice(0, LISTED) as n (n.id)}
+				<li>
+					<button type="button" class="s-{n.state} flex min-h-11 w-full items-start gap-3 rounded px-2 py-2 text-left hover:bg-edge" onclick={() => onshow(n)}>
+						<span class="mt-1"><Mark state={n.state} stage={n.stage} small /></span>
+						<span class="min-w-0 flex-1">
+							<span class="flex items-baseline justify-between gap-3 font-mono text-xs">
+								<span style="color: var(--tone)">{n.status === null ? STATE_LABEL[n.state] : `${n.label} · ${STATE_LABEL[n.state]}`}</span>
+								<span class="flex-none text-muted">{age(n.at)}</span>
+							</span>
+							<span class="line-clamp-2 leading-snug">{n.title}</span>
+						</span>
+					</button>
+				</li>
+			{/each}
+		</ul>
+		{#if unfinished.length > LISTED}
+			<p class="mt-1 text-xs text-muted">and {unfinished.length - LISTED} more, further down the same order.</p>
+		{/if}
 	{:else}
-		<p class="text-muted">Click a node to see the ticket, its session and its pull request.</p>
+		<p class="text-muted">Nothing is left unfinished. Click a node to see the ticket, its session and its pull request.</p>
 	{/if}
 </aside>

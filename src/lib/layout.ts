@@ -1,4 +1,4 @@
-import { mostUrgent, type Graph, type GraphNode, type Lane, type NodeState, type Stage } from './model';
+import { mostUrgent, STATE_ORDER, type Graph, type GraphNode, type Lane, type NodeState, type Stage } from './model';
 
 export const DAY = 86_400_000;
 /** Height of a lane with one row of nodes. */
@@ -119,7 +119,7 @@ const STATE_WORDS: Record<NodeState, string> = {
 };
 
 /** History is drawn small and dim; what is still in play is drawn full size, with its name (S-36). */
-function quiet(node: GraphNode): boolean {
+export function quiet(node: GraphNode): boolean {
 	if (node.state === 'done') return true;
 	// a session or pull request with no ticket, that is over
 	return node.status === null && node.state === 'open' && node.sessions.every((s) => s.gone) && !node.prs.length;
@@ -325,4 +325,15 @@ export function nextInState(view: Layout, state: NodeState, after: string | null
 	const targets = view.lanes.flatMap((box) => box.lane.nodes).filter((n) => inState(n, state));
 	if (!targets.length) return null;
 	return targets[(targets.findIndex((n) => n.id === after) + 1) % targets.length];
+}
+
+/**
+ * Everything that is not finished, most urgent first and then longest open first (S-19).
+ * This is the short answer to "what was I doing".
+ */
+export function unfinished(graph: Graph): { node: GraphNode; lane: Lane }[] {
+	const rank = (n: GraphNode) => STATE_ORDER.indexOf(n.state);
+	return graph.lanes
+		.flatMap((lane) => lane.nodes.filter((node) => !quiet(node)).map((node) => ({ node, lane })))
+		.sort((a, b) => rank(a.node) - rank(b.node) || a.node.at.localeCompare(b.node.at));
 }
