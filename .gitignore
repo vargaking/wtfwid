@@ -25,3 +25,6 @@ vite.config.ts.timestamp-*
 
 # test runner reports
 .vitest/
+
+# worktrees made by Claude Code helpers
+/.claude/worktrees/

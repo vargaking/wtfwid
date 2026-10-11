@@ -17,6 +17,7 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test": "vitest run",
 		"spec": "node scripts/spec-check.js",
+		"status": "node scripts/status.js",
 		"start": "node start.js",
 		"desktop": "vite build && electron .",
 		"dist": "vite build && electron-builder"
@@ -50,7 +51,9 @@
 		},
 		"files": [
 			"build/**/*",
-			"electron/main.js",
+			"electron/*.js",
+			"!electron/*.test.js",
+			"electron/resources/tray*.png",
 			"package.json"
 		],
 		"linux": {

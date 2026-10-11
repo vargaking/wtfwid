@@ -8,6 +8,7 @@
 	import Panel from '#lib/Panel.svelte';
 	import Search from '#lib/Search.svelte';
 	import Settings from '#lib/Settings.svelte';
+	import Update from '#lib/Update.svelte';
 	import Welcome from '#lib/Welcome.svelte';
 	import type { PageProps } from './$types';
 
@@ -219,6 +220,7 @@
 			<span class="font-mono text-lg font-semibold tracking-wide">wtfwid</span>
 			<span class="text-muted">updated {updated}</span>
 		</div>
+		{#if !graph.demo}<Update />{/if}
 		<div class="flex flex-wrap gap-x-5 gap-y-1 font-medium">
 			{#each JUMPS as j (j.state)}
 				{#if view.counts[j.state]}
