@@ -6,7 +6,7 @@ import { config } from './config';
 import { pulse } from './collect';
 import { listSessions } from './sessions';
 import { actionsFrom } from './story';
-import { claudeHome, findTranscript, readNote } from './transcript';
+import { agentTranscripts, claudeHome, findTranscript, readNote } from './transcript';
 
 /**
  * Follows the sessions that are running and says what each is doing, as it happens (S-85).
@@ -48,6 +48,8 @@ interface Followed {
 	/** The start of a line whose end has not been written yet. */
 	partial: Buffer;
 	recent: Action[];
+	/** Its sub-agents' transcripts, each read the same way: by file, how far and the unfinished rest. */
+	agents: Map<string, { offset: number; partial: Buffer }>;
 }
 
 type Listener = (event: LiveEvent) => void;
@@ -87,6 +89,8 @@ export function createHub(deps: HubDeps) {
 	let lastHint: string | null = null;
 	let listedAt = 0;
 	let timer: ReturnType<typeof setInterval> | undefined;
+	/** The first listing after the first window connected. */
+	let starting: Promise<void> | undefined;
 	const busy = { tail: false, list: false };
 
 	const send = (event: LiveEvent) => {
@@ -101,11 +105,15 @@ export function createHub(deps: HubDeps) {
 
 	async function follow(session: Session): Promise<Followed> {
 		const file = await findTranscript(session.id, session.cwd, deps.claude).catch(() => null);
-		const entry: Followed = { session, file, offset: 0, partial: Buffer.alloc(0), recent: [] };
+		const entry: Followed = { session, file, offset: 0, partial: Buffer.alloc(0), recent: [], agents: new Map() };
 		if (file) {
 			// start from now, with the last few things it did as a lead-in
 			entry.offset = await stat(file).then((s) => s.size, () => 0);
 			entry.recent = await readNote(file, session.cwd).then((n) => n.story?.recent.slice(-KEPT) ?? [], () => []);
+			// sub-agents that are already there are followed from where they are now
+			for (const agent of await agentTranscripts(file).catch(() => [])) {
+				entry.agents.set(agent.file, { offset: await stat(agent.file).then((s) => s.size, () => 0), partial: Buffer.alloc(0) });
+			}
 		}
 		return entry;
 	}
@@ -165,6 +173,16 @@ export function createHub(deps: HubDeps) {
 				entry.offset = read.offset;
 				entry.partial = read.partial;
 				const actions = read.lines.flatMap((line) => actionsFrom(line, entry.session.cwd));
+				// What its sub-agents are doing is what the session is doing: while it waits for
+				// them its own transcript is silent. A sub-agent that starts now is read from its start.
+				for (const agent of await agentTranscripts(entry.file).catch(() => [])) {
+					const at = entry.agents.get(agent.file) ?? { offset: 0, partial: Buffer.alloc(0) };
+					const more = await readNew(agent.file, at.offset, at.partial).catch(() => null);
+					if (!more) continue;
+					entry.agents.set(agent.file, { offset: more.offset, partial: more.partial });
+					actions.push(...more.lines.flatMap((line) => actionsFrom(line, entry.session.cwd, true)));
+				}
+				actions.sort((a, b) => (a.at ?? '').localeCompare(b.at ?? ''));
 				if (!actions.length) continue;
 				entry.recent = [...entry.recent, ...actions].slice(-KEPT);
 				send({ type: 'actions', id: entry.session.id, actions });
@@ -183,10 +201,15 @@ export function createHub(deps: HubDeps) {
 		async subscribe(listener: Listener): Promise<() => void> {
 			listeners.add(listener);
 			if (listeners.size === 1) {
-				lastHint = deps.hint ? await deps.hint().catch(() => null) : null;
-				await relist();
-				timer = setInterval(tick, TICK_MS);
+				starting = (async () => {
+					lastHint = deps.hint ? await deps.hint().catch(() => null) : null;
+					await relist();
+				})();
+				// A tick that fails must not take the server down with it: it is tried again in a second.
+				timer = setInterval(() => void tick().catch(() => {}), TICK_MS);
 			}
+			// a window that connects while the first one is still being answered waits for the same list
+			await starting?.catch(() => {});
 			listener(snapshot());
 			return () => {
 				listeners.delete(listener);
@@ -194,8 +217,11 @@ export function createHub(deps: HubDeps) {
 				clearInterval(timer);
 				followed.clear();
 				lastBeat = null;
+				starting = undefined;
 			};
 		},
+		/** Tells every open window to read everything again. */
+		nudge: () => send({ type: 'sessions' }),
 		// for tests, which do not want to wait for a timer
 		tick,
 		tail,

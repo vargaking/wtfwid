@@ -32,6 +32,29 @@ export interface PullRequest {
 	branch: string;
 	state: 'open' | 'draft' | 'merged' | 'closed';
 	createdAt: string;
+	/** When GitHub last saw it change. Used to know when its files and commits must be read again. */
+	updatedAt?: string;
+	/**
+	 * Links to the Claude Code sessions that worked on it (S-90). A session that runs in the
+	 * cloud leaves its link in the pull request's description and in its commits; that is the
+	 * only trace of it outside claude.ai.
+	 */
+	sessions?: string[];
+}
+
+/** What wtfwid keeps of a pull request after reading its files and commits once (S-56, S-90). */
+export interface PullDigest {
+	/** Which state of the pull request this was read from (its `updatedAt`), and when. */
+	stamp: string;
+	readAt: number;
+	/** Files it changes, most changed first. */
+	files: { path: string; changes: number }[];
+	added: number;
+	removed: number;
+	/** Its commits: when, in whole minutes since 1970, and which of `sessions` made it (-1: none named). */
+	commits: [number, number][];
+	/** Session links from the commits' `Claude-Session:` trailers, in order of first appearance. */
+	sessions: string[];
 }
 
 export interface Session {
@@ -109,6 +132,8 @@ export interface SessionStory {
 	branches: string[];
 	/** The last things it did. */
 	recent: Action[];
+	/** The stretches it was at it, as [from, to] in milliseconds. A pause of more than five minutes ends one. */
+	spans: [number, number][];
 }
 
 /** What the live stream sends (S-85). */
@@ -119,6 +144,65 @@ export type LiveEvent =
 	| { type: 'actions'; id: string; actions: Action[] }
 	/** a session started, stopped or changed state: read everything again */
 	| { type: 'sessions' };
+
+/**
+ * What wtfwid keeps of a session after reading its transcript once (S-86): enough to relate
+ * tickets to each other and to say when the work happened, and small enough to keep for good.
+ */
+export interface Digest {
+	/** Which state of the transcript this was read from, and when. */
+	stamp: string;
+	readAt: number;
+	/** The checkout the session worked in: its folder, with a Claude Code worktree taken out. */
+	root: string;
+	/** Files it edited, as the story has them: from the session's folder, most edited first. */
+	files: { path: string; edits: number }[];
+	/** Git branches it was on, in order. */
+	branches: string[];
+	/** When it was at it, as [from, to] in whole minutes since 1970. */
+	spans: [number, number][];
+	minutes: number;
+	added: number;
+	removed: number;
+	tokens: number;
+	costUSD: number | null;
+	/** Links to the cloud sessions behind it, when this came from a pull request (S-90). */
+	cloud?: string[];
+	/** When it committed, in whole minutes since 1970, when this came from a pull request. */
+	commits?: number[];
+}
+
+/** How two nodes on the timeline belong together (S-86). */
+export interface Relation {
+	/** Node ids. `a` is the earlier one; when a session carried on, `a` is where it came from. */
+	a: string;
+	b: string;
+	/** A session went from `a`'s branch to `b`'s: `b` grew out of `a`. */
+	continued: boolean;
+	/** How much they share: each file both changed counts, less the more other tickets changed it too. */
+	weight: number;
+	/** How many files both changed. */
+	shared: number;
+	/** A few of those files, the ones fewest other tickets touched first. */
+	files: string[];
+}
+
+/** The work that went into a node, added up over its sessions (S-88). */
+export interface Work {
+	minutes: number;
+	/** How many of its sessions this is known for. */
+	sessions: number;
+	added: number;
+	removed: number;
+	tokens: number;
+	costUSD: number | null;
+	/** When, as [from, to] in whole minutes since 1970, in order. Sessions that ran side by side overlap. */
+	spans: [number, number][];
+	/** When its pull requests' commits were made, in whole minutes since 1970, in order (S-90). */
+	commits: number[];
+	/** Lines its pull requests add and remove, as GitHub counts them. Left out without pull request data. */
+	lines?: { added: number; removed: number };
+}
 
 // --- what the screen draws -------------------------------------------------
 
@@ -138,6 +222,8 @@ export interface GraphNode {
 	completedAt: string | null;
 	sessions: Session[];
 	prs: PullRequest[];
+	/** Left out when none of its sessions has been read. */
+	work?: Work;
 }
 
 export interface Lane {
@@ -159,6 +245,10 @@ export interface Graph {
 	setup: boolean;
 	warnings: string[];
 	lanes: Lane[];
+	/** Strongest first. Left out until sessions have been read. */
+	relations?: Relation[];
+	/** The sessions that worked on more than one ticket, each with the tickets in the order it came to them. */
+	threads?: { session: string; nodes: string[] }[];
 }
 
 // --- settings ---------------------------------------------------------------

@@ -15,10 +15,17 @@ const issue = (n: number, over = {}) => ({
 	identifier: `ENG-${n}`, title: 'secret title', url: 'u', createdAt: 'c', startedAt: n % 2 ? '2026-10-01T09:00:00.000Z' : null, completedAt: null, canceledAt: null,
 	branchName: `dev/eng-${n}-thing`, state: { name: 'Todo', type: 'unstarted' }, project: { id: 'p', name: 'Web' }, projectMilestone: n === 1 ? { id: 'm', name: 'Voice' } : null, ...over
 });
-const pull = (number: number, state = 'open') => ({ number, title: 'secret pr', html_url: 'u', head: { ref: 'b' }, state, draft: false, merged_at: null, created_at: 'c' });
+const LINK = 'https://claude.ai/code/session_01AbCdEf';
+// the first one is on a ticket's branch and names its session in the description, the way a cloud session leaves it
+const pull = (number: number, state = 'open') => ({
+	number, title: 'secret pr', html_url: 'u', head: { ref: number === 1 ? 'dev/eng-1-thing' : 'b' }, state, draft: false, merged_at: null, created_at: `2026-10-0${number}T09:00:00Z`, updated_at: `2026-10-0${number}T10:00:00Z`,
+	body: number === 1 ? `secret description\n\n${LINK}` : 'secret description'
+});
 const fetcher = (async (url: string) => {
 	if (url.includes('linear.app')) return json({ data: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [issue(1), issue(2), issue(3)] } } });
 	if (url.includes('/repos/o/private/')) return json({ message: 'Not Found' }, 404);
+	if (url.includes('/files')) return json([{ filename: 'src/secret-file.ts', additions: 2, deletions: 1, changes: 3 }]);
+	if (url.includes('/commits')) return json([{ commit: { author: { date: '2026-10-02T10:00:00Z' }, message: `secret commit\n\nClaude-Session: ${LINK}` } }]);
 	return json([pull(1), pull(2, 'closed')]);
 }) as typeof fetch;
 
@@ -57,7 +64,11 @@ describe('checking the connections', () => {
 				'       Git branch readable in 1; 1 moved from one branch to another',
 				'       0 opened a pull request',
 				'ok   Sessions on tickets: 2 of 2 sessions belong to a ticket (2 recent ones, 0 from disk).',
-				'       1 by their name or folder, 1 more by the branch they are on'
+				'       1 by their name or folder, 1 more by the branch they are on',
+				'ok   Cloud sessions: Pull requests name the Claude Code session that made them (1 of 2 in the description).',
+				'       1 of 2 pull requests belong to a ticket, by their branch or title',
+				'       1 name a session in their description',
+				'       Of the 2 most recent, 2 name a session in their commits'
 			].join('\n')
 		);
 	});
@@ -77,7 +88,7 @@ describe('checking the connections', () => {
 		let asked = 0;
 		const counting = (async () => (asked++, json([]))) as unknown as typeof fetch;
 		const checks = await checkAll({ cfg: cfg({ linearKey: null, githubRepos: [] }), fetcher: counting, list: async () => [], claude: '/nowhere', ghToken: async () => null });
-		expect(checks.map((c) => [c.name, c.ok])).toEqual([['Linear', null], ['GitHub', null], ['Claude Code', true], ['Session transcripts', null], ['Sessions on tickets', null]]);
+		expect(checks.map((c) => [c.name, c.ok])).toEqual([['Linear', null], ['GitHub', null], ['Claude Code', true], ['Session transcripts', null], ['Sessions on tickets', null], ['Cloud sessions', null]]);
 		expect(asked).toBe(0);
 	});
 
@@ -103,7 +114,23 @@ describe('checking the connections', () => {
 		expect(checks[0]).toMatchObject({ ok: false, summary: 'The key works, but team ENG has no issues. Check the team key: it is the prefix of your issue IDs.' });
 		expect(checks[3]).toMatchObject({ ok: false, summary: 'Found 1 of the 1 most recent, but could not read any. The format may differ from the one wtfwid knows.' });
 		const gone = await checkAll({ cfg: cfg({ githubRepos: [] }), fetcher: empty, list: async () => [session(OTHER)], claude, ghToken: async () => null });
-		expect(gone[3]).toMatchObject({ ok: false, summary: `No transcript found for any of the 1 most recent sessions. Looked in ${claude}/projects.` });
+		// not a fault by itself: a session that runs in the cloud leaves nothing on this machine
+		expect(gone[3]).toMatchObject({ ok: null, summary: `No transcript found for any of the 1 most recent sessions. Looked in ${claude}/projects.` });
+		expect(gone[3].details[0]).toMatch(/run in the cloud/);
+	});
+
+	it('S-90 says whether pull requests name the sessions that made them, and does not call a cloud-only setup broken', async () => {
+		// one stray local session that matches nothing, no transcripts: someone who works in the cloud
+		const checks = await checkAll({ cfg: cfg({ githubRepos: ['o/r'] }), fetcher, list: async () => [session(OTHER, { name: 'scratch' })], claude: '/nowhere', ghToken: async () => 'tok' });
+		expect(checks.map((c) => [c.name, c.ok])).toEqual([['Linear', true], ['GitHub', true], ['Claude Code', true], ['Session transcripts', null], ['Sessions on tickets', null], ['Cloud sessions', true]]);
+		// with no token the files and commits are not read, and it says what that costs
+		const bare = await checkAll({ cfg: cfg({ githubRepos: ['o/r'] }), fetcher, list: async () => [], claude: '/nowhere', ghToken: async () => null });
+		expect(bare[5].details.at(-1)).toMatch(/^No GitHub token/);
+		// pull requests that name no session at all
+		const plain = (async (url: string) => (url.includes('linear.app') ? json({ data: { issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [issue(1)] } } }) : url.includes('/commits') || url.includes('/files') ? json([]) : json([pull(2)]))) as typeof fetch;
+		const none = await checkAll({ cfg: cfg({ githubRepos: ['o/r'] }), fetcher: plain, list: async () => [], claude: '/nowhere', ghToken: async () => 'tok' });
+		expect(none[5]).toMatchObject({ ok: null, summary: 'No pull request names a Claude Code session.' });
+		expect(none[5].details.at(-1)).toMatch(/attribution\.sessionUrl/);
 	});
 
 	it('S-79 says how many sessions it looked at when there are more than it reads', async () => {

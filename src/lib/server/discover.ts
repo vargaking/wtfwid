@@ -13,7 +13,8 @@ import { claudeHome } from './transcript';
  */
 
 const TRANSCRIPT = /^([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\.jsonl$/i;
-const HEAD = 32 * 1024;
+/** How much of the start is read to find where and when: more only when the first lines are very long. */
+const HEADS = [32 * 1024, 256 * 1024, 1024 * 1024];
 const TAIL = 256 * 1024;
 
 /** The last value of a string field in a piece of a transcript, or null. */
@@ -43,20 +44,26 @@ async function readPiece(file: string, from: 'start' | 'end', bytes: number): Pr
 
 /** What one transcript says about its session, or null when it is not a session of its own. */
 export async function sessionFrom(file: string, id: string): Promise<Session | null> {
-	const head = await readPiece(file, 'start', HEAD);
 	let cwd: string | null = null;
 	let startedAt: string | null = null;
-	for (const line of head.split('\n')) {
-		let entry: { cwd?: unknown; timestamp?: unknown; isSidechain?: unknown };
-		try {
-			entry = JSON.parse(line);
-		} catch {
-			continue; // a line longer than the piece that was read
+	// A session started by pasting a long text has a first line of many kilobytes. If the
+	// piece ends before a whole line said where and when, read a bigger piece.
+	for (const bytes of HEADS) {
+		const head = await readPiece(file, 'start', bytes);
+		for (const line of head.split('\n')) {
+			let entry: { cwd?: unknown; timestamp?: unknown; isSidechain?: unknown } | null;
+			try {
+				entry = JSON.parse(line);
+			} catch {
+				continue; // a line longer than the piece that was read
+			}
+			if (!entry || typeof entry !== 'object') continue;
+			if (entry.isSidechain === true) return null; // a sub-agent's conversation, part of another session
+			if (typeof entry.timestamp === 'string') startedAt ??= entry.timestamp;
+			if (typeof entry.cwd === 'string') cwd ??= entry.cwd;
+			if (cwd && startedAt) break;
 		}
-		if (entry.isSidechain === true) return null; // a sub-agent's conversation, part of another session
-		if (typeof entry.timestamp === 'string') startedAt ??= entry.timestamp;
-		if (typeof entry.cwd === 'string') cwd ??= entry.cwd;
-		if (cwd && startedAt) break;
+		if ((cwd && startedAt) || head.length < bytes) break;
 	}
 	if (!cwd || !startedAt || Number.isNaN(Date.parse(startedAt))) return null;
 

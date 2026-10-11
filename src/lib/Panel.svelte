@@ -1,9 +1,11 @@
 <script lang="ts">
-	import { dayLabel } from './layout';
+	import type { Day } from './days';
+	import { DAY, dayLabel } from './layout';
 	import Mark from './Mark.svelte';
 	import { onMount } from 'svelte';
-	import type { Action, GraphNode, NodeState, SessionNote } from './model';
+	import type { Action, GraphNode, NodeState, Relation, SessionNote } from './model';
 	import { contextPack, resumeCommand } from './pack';
+	import { reason } from './relations';
 
 	interface Props {
 		/** the nodes of the cluster that was clicked */
@@ -18,8 +20,35 @@
 		onclear: () => void;
 		/** the last things each running session did, by session id (S-85) */
 		live?: Record<string, Action[]>;
+		/** what the open ticket is related to, strongest first (S-86) */
+		related?: { node: GraphNode; relation: Relation }[];
+		/** the ways sessions went that pass through the open ticket: the tickets each worked on, in order */
+		ways?: { session: string; nodes: GraphNode[] }[];
+		/** the day, or week, that was picked on the axis (S-89) */
+		day?: Day | null;
+		/** today, for the line above the unfinished list */
+		today?: Day | null;
+		/** show a day (its start), or let go of the one shown (null) */
+		onday?: (from: number | null) => void;
 	}
-	let { nodes, focus, onfocus, unfinished, onshow, onclear, live = {} }: Props = $props();
+	let { nodes, focus, onfocus, unfinished, onshow, onclear, live = {}, related = [], ways = [], day = null, today = null, onday }: Props = $props();
+
+	/** The end of a path: the file and the folder it is in, which is usually enough to know it. */
+	const shortPath = (path: string) => path.split(/[\\/]/).slice(-2).join('/');
+	/** S-90: the cloud sessions behind the open ticket, each with the pull requests that carry its link. */
+	const cloud = $derived.by(() => {
+		const byUrl = new Map<string, number[]>();
+		for (const pr of focus?.prs ?? []) for (const url of pr.sessions ?? []) byUrl.set(url, [...(byUrl.get(url) ?? []), pr.number]);
+		return [...byUrl].map(([url, prs]) => ({ url, prs }));
+	});
+	const wayOf = (session: string) => ways.find((w) => w.session === session);
+	/** The tickets just before and after position `at` on a session's way: enough to step along it. */
+	const nearby = (nodes: GraphNode[], at: number) => nodes.slice(Math.max(0, at - 4), at + 5);
+	/** How many tickets of a day are listed before "show all". */
+	const DAY_LISTED = 12;
+	let allOfDay = $state(false);
+	/** A day by its date; anything longer by the date it starts on. */
+	const dayTitle = (d: Day) => (d.to - d.from < DAY * 1.5 ? dayLabel(d.from) : `Week of ${dayLabel(d.from)}`);
 
 	// S-85: a clock, so "12 s ago" keeps counting between events
 	let clock = $state(Date.now());
@@ -151,11 +180,16 @@
 	<p class="mt-0.5 border-l-2 border-rail pl-2.5 text-[13px] leading-snug break-words whitespace-pre-line {full ? '' : 'line-clamp-5'}">{text}</p>
 {/snippet}
 
-<aside id="ticket-panel" tabindex="-1" aria-label="Selected ticket" class="outline-none box-border w-full flex-none overflow-y-auto border-t border-edge px-6 pt-5 pb-7 md:w-80 md:border-t-0 md:border-l">
+<!-- focus is put here when a ticket or a day is opened; it is a place to read on from, not a control, so it draws no ring -->
+<aside id="ticket-panel" tabindex="-1" aria-label="Selected ticket" style="outline: none" class="box-border w-full flex-none overflow-y-auto border-t border-edge px-6 pt-5 pb-7 md:w-80 md:border-t-0 md:border-l">
 	{#if focus}
 		{#if nodes.length > 1}
 			<button type="button" class="mb-3 -ml-2 min-h-11 rounded px-2 text-muted hover:text-ink" onclick={() => onfocus(null)}>
 				← all {nodes.length}
+			</button>
+		{:else if day}
+			<button type="button" class="mb-3 -ml-2 min-h-11 rounded px-2 text-muted hover:text-ink" onclick={onclear}>
+				← {dayTitle(day)}
 			</button>
 		{:else if unfinished.length}
 			<button type="button" class="mb-3 -ml-2 min-h-11 rounded px-2 text-muted hover:text-ink" onclick={onclear}>
@@ -184,7 +218,51 @@
 				<dt class="text-muted">Completed</dt>
 				<dd>{when(focus.completedAt)}</dd>
 			{/if}
+			{#if focus.work && (focus.work.commits.length || focus.work.lines)}
+				<!-- S-90: what its pull requests hold; for work done in the cloud this is all there is to count -->
+				<dt class="text-muted">Changed</dt>
+				<dd>
+					{count(focus.work.commits.length, 'commit')}
+					{#if focus.work.lines}<span class="text-muted">· +{compact(focus.work.lines.added)} −{compact(focus.work.lines.removed)} lines</span>{/if}
+				</dd>
+			{/if}
+			{#if focus.work && (focus.work.minutes || focus.work.costUSD !== null)}
+				<!-- S-88: the work that went into it, over all its sessions; when is drawn on the time axis -->
+				<dt class="text-muted">Worked</dt>
+				<dd>
+					{duration(focus.work.minutes)}
+					<span class="text-muted">
+						{[focus.work.sessions > 1 ? `· ${focus.work.sessions} sessions` : '', focus.work.costUSD !== null ? `· $${focus.work.costUSD.toFixed(2)}` : ''].filter(Boolean).join(' ')}
+					</span>
+				</dd>
+			{/if}
 		</dl>
+
+		{#if related.length}
+			<!-- S-86: the tickets the lines on the timeline go to, and why -->
+			{@render heading('Related')}
+			<ul class="mt-1.5 -ml-2">
+				{#each related as r (r.node.id)}
+					<li>
+						<button type="button" class="flex min-h-11 w-full items-start gap-3 rounded px-2 py-1.5 text-left hover:bg-edge" onclick={() => onshow(r.node)}>
+							<span class="mt-1"><Mark state={r.node.state} stage={r.node.stage} small /></span>
+							<span class="min-w-0 flex-1">
+								<span class="block truncate leading-snug" title={r.node.title}>
+									{#if r.node.status !== null}<span class="font-mono text-xs text-muted">{r.node.label}</span>{/if}
+									{r.node.title}
+								</span>
+								<span class="block text-xs text-muted">{reason(r.relation, focus.id)}</span>
+								{#if r.relation.files.length}
+									<span class="block truncate font-mono text-[11px] text-muted" title={r.relation.files.join('\n')}>
+										{r.relation.files.map(shortPath).join(', ')}{r.relation.shared > r.relation.files.length ? ', …' : ''}
+									</span>
+								{/if}
+							</span>
+						</button>
+					</li>
+				{/each}
+			</ul>
+		{/if}
 
 		{#if focus.sessions.length}
 			{@render heading(focus.sessions.length === 1 ? 'Session' : 'Sessions')}
@@ -219,7 +297,8 @@
 							<p class="mt-0.5 text-[13px] leading-snug">
 								{[
 									story.activeMinutes ? `${duration(story.activeMinutes)} at it` : '',
-									count(story.promptCount, 'prompt'),
+									// the prompts can be gone from a transcript that was compacted: say nothing rather than "0"
+									story.promptCount ? count(story.promptCount, 'prompt') : '',
 									count(story.commands, 'command'),
 									story.files.length ? count(story.files.length, 'file') : ''
 								]
@@ -313,6 +392,39 @@
 			</ul>
 		{/if}
 
+		{#if cloud.length}
+			<!-- S-90: sessions that ran in the cloud, known by the link they left on the pull request -->
+			{@render heading(cloud.length === 1 ? 'Cloud session' : 'Cloud sessions')}
+			<ul class="mt-2 space-y-1.5">
+				{#each cloud as c (c.url)}
+					<li>
+						<a class="inline-flex min-h-9 items-center gap-2 rounded-md border border-rail px-3 text-[13px] hover:bg-edge" href={c.url} target="_blank" rel="noreferrer">
+							Open on claude.ai
+							<span class="font-mono text-xs text-muted">…{c.url.slice(-6)}</span>
+						</a>
+						<span class="ml-1 text-xs text-muted">{c.prs.map((n) => `#${n}`).join(', ')}</span>
+						{#if wayOf(c.url)}
+							<!-- the same session worked on these too, in this order; the timeline draws the way it went -->
+							{@const way = wayOf(c.url)!}
+							{@const at = way.nodes.findIndex((n) => n.id === focus.id)}
+							<div class="mt-1.5 text-xs text-muted">
+								One session, {way.nodes.length} tickets. This is number {at + 1}.
+								<span class="mt-1 flex flex-wrap gap-x-1 gap-y-0.5 font-mono">
+									{#each nearby(way.nodes, at) as n (n.id)}
+										{#if n.id === focus.id}
+											<span class="rounded bg-edge px-1 text-ink">{n.label}</span>
+										{:else}
+											<button type="button" class="rounded px-1 hover:bg-edge hover:text-ink" title={n.title} onclick={() => onshow(n)}>{n.label}</button>
+										{/if}
+									{/each}
+								</span>
+							</div>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+
 		{#if focus.prs.length}
 			{@render heading(focus.prs.length === 1 ? 'Pull request' : 'Pull requests')}
 			<ul class="mt-2 space-y-2">
@@ -342,12 +454,12 @@
 				type="button"
 				class="mt-2.5 inline-flex min-h-11 items-center rounded-md border border-rail px-3.5 hover:bg-edge disabled:text-muted disabled:hover:bg-transparent"
 				disabled={reading}
-				onclick={() => copy(`pack:${focus.id}`, contextPack(focus, notes))}
+				onclick={() => copy(`pack:${focus.id}`, contextPack(focus, notes, related))}
 			>
 				{reading ? 'Reading its sessions…' : copied === `pack:${focus.id}` ? 'Copied' : 'Copy context for a new session'}
 			</button>
 			{#if copied === `pack:${focus.id}:failed`}
-				<textarea id="context-pack" readonly rows="8" class="mt-2 block w-full rounded-md border border-rail bg-ground p-2 font-mono text-xs text-muted">{contextPack(focus, notes)}</textarea>
+				<textarea id="context-pack" readonly rows="8" class="mt-2 block w-full rounded-md border border-rail bg-ground p-2 font-mono text-xs text-muted">{contextPack(focus, notes, related)}</textarea>
 			{/if}
 		{/if}
 	{:else if nodes.length}
@@ -366,9 +478,86 @@
 				</li>
 			{/each}
 		</ul>
+	{:else if day}
+		<!-- S-89: what happened in the day or week that was clicked on the axis -->
+		{@const most = Math.max(1, ...day.items.map((i) => i.minutes))}
+		{@const mostCommits = Math.max(1, ...day.items.map((i) => i.commits))}
+		{@const committed = day.items.filter((i) => i.commits).length}
+		{@const began = day.items.filter((i) => i.started && i.node.status !== null).length}
+		{@const ended = day.items.filter((i) => i.completed).length}
+		<button type="button" class="mb-3 -ml-2 min-h-11 rounded px-2 text-muted hover:text-ink" onclick={() => onday?.(null)}>
+			← {unfinished.length ? 'unfinished' : 'back'}
+		</button>
+		<div class="font-mono text-xs tracking-[0.08em] text-muted uppercase">{dayTitle(day)}</div>
+		{#if day.minutes}
+			<h2 class="mt-2 text-xl leading-snug font-semibold">{duration(day.minutes)} <span class="font-normal text-muted">of session time</span></h2>
+			<p class="mt-1 text-[13px] text-muted">
+				{[
+					day.busy < day.minutes ? `something was running for ${duration(day.busy)}` : '',
+					day.costUSD !== null ? `about $${day.costUSD.toFixed(2)}` : ''
+				]
+					.filter(Boolean)
+					.join(' · ')}
+			</p>
+		{:else if day.commits}
+			<!-- S-90: no session on this machine, but commits: work that was done in the cloud -->
+			<h2 class="mt-2 text-xl leading-snug font-semibold">{count(day.commits, 'commit')} <span class="font-normal text-muted">on {count(committed, 'ticket')}</span></h2>
+		{:else if began || ended}
+			<!-- no session was read for that day: what Linear says happened is the answer then -->
+			<h2 class="mt-2 text-xl leading-snug font-semibold">{[began ? `${began} started` : '', ended ? `${ended} completed` : ''].filter(Boolean).join(' · ')}</h2>
+			<p class="mt-1 text-[13px] text-muted">No session that wtfwid has read was at work then.</p>
+		{:else}
+			<h2 class="mt-2 text-xl leading-snug font-semibold">{day.items.length ? 'No session time' : 'Nothing happened'}</h2>
+		{/if}
+		{#if (day.minutes || day.commits) && (began || ended)}
+			<p class="mt-1 text-[13px] text-muted">{[began ? `${began} started` : '', ended ? `${ended} completed` : ''].filter(Boolean).join(' · ')}</p>
+		{/if}
+		<ul class="mt-3 -ml-2">
+			{#each allOfDay ? day.items : day.items.slice(0, DAY_LISTED) as item (item.node.id)}
+				{@const n = item.node}
+				<li>
+					<button type="button" class="s-{n.state} flex min-h-11 w-full items-start gap-3 rounded px-2 py-2 text-left hover:bg-edge" onclick={() => onshow(n)}>
+						<span class="mt-1"><Mark state={n.state} stage={n.stage} small /></span>
+						<span class="min-w-0 flex-1">
+							<span class="flex items-baseline justify-between gap-3 font-mono text-xs">
+								<span class="flex flex-wrap gap-x-2 text-muted">
+									<span>{n.status === null ? (n.stage === 'pr' ? 'Pull request' : 'Session') : n.label}</span>
+									{#if item.started}<span>started</span>{/if}
+									{#if item.completed}<span>completed</span>{/if}
+								</span>
+								<span class="flex-none">{item.minutes ? duration(item.minutes) : item.commits ? count(item.commits, 'commit') : ''}</span>
+							</span>
+							<span class="line-clamp-2 leading-snug">{n.title}</span>
+							{#if item.minutes || (!day.minutes && item.commits)}
+								<!-- how much of the day's work this was, next to the others: by time, or by commits when there is no time -->
+								<span
+									class="mt-1.5 block h-1 rounded-sm"
+									style="width: {Math.max(2, day.minutes ? (100 * item.minutes) / most : (100 * item.commits) / mostCommits)}%; background: var(--tone)"
+								></span>
+							{/if}
+						</span>
+					</button>
+				</li>
+			{/each}
+		</ul>
+		{#if day.items.length > DAY_LISTED}
+			<button type="button" class="-ml-2 min-h-9 rounded px-2 text-xs text-muted hover:text-ink" onclick={() => (allOfDay = !allOfDay)}>
+				{allOfDay ? 'show fewer' : `show all ${day.items.length}`}
+			</button>
+		{/if}
 	{:else if unfinished.length}
 		<!-- S-19: nothing selected, so answer the question the app is named after -->
 		<h2 class="text-xl font-semibold">Unfinished <span class="font-normal text-muted">{unfinished.length}</span></h2>
+		{#if today?.minutes || today?.commits}
+			<!-- S-89: today in one line; it opens the day -->
+			<button type="button" class="mt-1 -ml-2 min-h-9 rounded px-2 text-left text-[13px] text-muted hover:bg-edge hover:text-ink" onclick={() => onday?.(today.from)}>
+				{#if today.minutes}
+					Today: {duration(today.minutes)} on {count(today.items.filter((i) => i.minutes).length, 'ticket')} →
+				{:else}
+					Today: {count(today.commits, 'commit')} on {count(today.items.filter((i) => i.commits).length, 'ticket')} →
+				{/if}
+			</button>
+		{/if}
 		<ul class="mt-3 -ml-2">
 			{#each unfinished.slice(0, LISTED) as n (n.id)}
 				<li>

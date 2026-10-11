@@ -83,12 +83,25 @@ describe('picking work up again', () => {
 
 	it('S-57 packs the files the earlier session changed most', () => {
 		const files = Array.from({ length: 15 }, (_, i) => ({ path: `src/f${i}.ts`, edits: 20 - i, created: i === 1 }));
-		const story = { startedAt: null, endedAt: null, activeMinutes: 0, prompts: [], promptCount: 0, files, commands: 0, toolCalls: 1, added: 0, removed: 0, tokens: { input: 0, output: 0, cached: 0 }, costUSD: null, branches: [], recent: [] };
+		const story = { startedAt: null, endedAt: null, activeMinutes: 0, prompts: [], promptCount: 0, files, commands: 0, toolCalls: 1, added: 0, removed: 0, tokens: { input: 0, output: 0, cached: 0 }, costUSD: null, branches: [], recent: [], spans: [] };
 		const pack = contextPack(ticket(), { [ID]: { ...note, story } });
 		expect(pack).toContain('Files it changed (the 12 it changed most, of 15):\n- src/f0.ts\n- src/f1.ts (new)\n- src/f2.ts');
 		expect(pack).toContain('- src/f11.ts');
 		expect(pack).not.toContain('src/f12.ts');
 		expect(contextPack(ticket(), { [ID]: { ...note, story: { ...story, files: files.slice(0, 2) } } })).toContain('Files it changed:\n- src/f0.ts\n- src/f1.ts (new)');
+	});
+
+	it('S-86 names related work and the files it shares, so a new session knows where to look', () => {
+		const other = ticket({ id: 'ENG-20', label: 'ENG-20', title: 'Join and leave a voice room', state: 'done', sessions: [] });
+		const loose = ticket({ id: 'session:x', label: 'spike', title: 'spike', status: null, sessions: [] });
+		const pack = contextPack(ticket(), {}, [
+			{ node: other, relation: { a: 'ENG-20', b: 'ENG-24', continued: true, weight: 2, shared: 6, files: ['src/rtc/connection.ts', 'src/voice/room.ts'] } },
+			{ node: loose, relation: { a: 'ENG-24', b: 'session:x', continued: true, weight: 0, shared: 0, files: [] } }
+		]);
+		expect(pack).toContain(
+			'## Related work\n- ENG-20 Join and leave a voice room (done): a session came to this ticket from it; changed the same files: src/rtc/connection.ts, src/voice/room.ts and 4 more\n- spike (not finished): a session went on from this ticket to it'
+		);
+		expect(contextPack(ticket(), {})).not.toContain('Related work');
 	});
 
 	it('S-57 works for a session with no ticket', () => {

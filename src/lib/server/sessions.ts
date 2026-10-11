@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -103,7 +104,8 @@ export async function collectSessions(home: string, list: () => Promise<Session[
 	const all = remember(known, await withBranches(await list(), known, claude), found);
 	await mkdir(home, { recursive: true });
 	// written beside the file and moved into place, so nothing ever reads half of it
-	const draft = `${file}.${process.pid}.tmp`;
+	// with a name of its own: two refreshes at once must not write into the same draft
+	const draft = `${file}.${process.pid}.${randomUUID()}.tmp`;
 	await writeFile(draft, JSON.stringify(all, null, '\t'));
 	await rename(draft, file);
 	return all;

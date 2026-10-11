@@ -1,4 +1,4 @@
-import type { Issue, PullRequest, Session, Snapshot } from '../model';
+import type { Digest, Issue, PullRequest, Session, Snapshot } from '../model';
 
 const HOUR = 3_600_000;
 
@@ -34,6 +34,37 @@ const ROWS: Row[] = [
 	[46, 'Code signing', 'Desktop app', 'Auto-update', 28, null, 'review'],
 	[47, 'Tell open clients a new version is out', 'Desktop app', 'Auto-update', 9, null, 'needs']
 ];
+
+/** Files each invented ticket's session changed, so the demo has relations to show (S-86). */
+const FILES: Record<number, string[]> = {
+	1: ['src/auth/login.svelte', 'src/auth/validate.ts'],
+	2: ['src/ws/limit.ts', 'src/ws/events.ts'],
+	3: ['src/profile/avatar.ts'],
+	4: ['src/theme/tokens.css', 'src/theme/dark.css'],
+	5: ['e2e/cold-start.spec.ts', 'src/ws/events.ts'],
+	10: ['src/messages/list.svelte', 'src/messages/store.ts'],
+	11: ['src/messages/item.svelte', 'src/messages/store.ts'],
+	12: ['src/messages/reactions.svelte', 'src/messages/item.svelte'],
+	13: ['src/messages/typing.ts', 'src/ws/events.ts'],
+	14: ['src/messages/unread.ts', 'src/messages/store.ts', 'src/sidebar/presence.svelte'],
+	20: ['src/voice/room.ts', 'src/voice/join.svelte', 'src/rtc/connection.ts', 'src/rtc/tracks.ts'],
+	21: ['src/voice/controls.svelte', 'src/voice/room.ts'],
+	22: ['src/sidebar/presence.svelte', 'src/voice/room.ts'],
+	23: ['src/voice/devices.ts', 'src/settings/audio.svelte'],
+	24: ['src/rtc/connection.ts', 'src/rtc/reconnect.ts', 'src/voice/room.ts'],
+	25: ['src/voice/echo-test.svelte', 'src/voice/devices.ts'],
+	30: ['src/screen/capture.ts', 'src/rtc/connection.ts', 'src/rtc/tracks.ts'],
+	31: ['src/screen/viewer.svelte', 'src/screen/layout.ts'],
+	32: ['src/screen/bitrate.ts', 'src/rtc/tracks.ts'],
+	34: ['src/screen/popout.ts', 'src/screen/viewer.svelte'],
+	40: ['desktop/main.ts', 'desktop/preload.ts'],
+	41: ['desktop/tray.ts', 'desktop/main.ts'],
+	45: ['desktop/update/feed.ts', 'desktop/main.ts'],
+	46: ['desktop/update/sign.ts', 'build/notarize.js'],
+	47: ['desktop/update/notify.ts', 'desktop/update/feed.ts', 'src/app/banner.svelte']
+};
+/** Tickets whose session began on another ticket's branch: screen share grew out of voice. */
+const CAME_FROM: Record<number, number> = { 30: 20, 47: 45 };
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -73,6 +104,20 @@ export function demoSnapshot(now: number): Snapshot {
 				createdAt: iso(ago - 1)
 			});
 		}
+		if (done && FILES[n]) {
+			// what finding past sessions on disk gives a real timeline (S-83)
+			sessions.push({
+				id: `demo-session-${n}`,
+				name: `${id} ${slug(title).slice(0, 18)}`,
+				cwd: `/home/you/app/.claude/worktrees/${branch}`,
+				kind: 'background',
+				startedAt: iso(ago),
+				state: 'done',
+				waitingFor: null,
+				gone: true,
+				branch
+			});
+		}
 		if (extra && extra !== 'review') {
 			sessions.push({
 				id: `demo-session-${n}`,
@@ -99,4 +144,34 @@ export function demoSnapshot(now: number): Snapshot {
 	});
 
 	return { fetchedAt: new Date(now).toISOString(), demo: true, warnings: [], issues, prs, sessions };
+}
+
+/** What reading the invented sessions' transcripts would have given (S-86, S-88). */
+export function demoDigests(now: number): Record<string, Digest> {
+	const branchOf = new Map(ROWS.map(([n, title]) => [n, `demo-${n}-${slug(title)}`]));
+	const minute = (hoursAgo: number) => Math.round((now - hoursAgo * HOUR) / 60_000);
+	const out: Record<string, Digest> = {};
+	for (const [n, , , , ago, took] of ROWS) {
+		if (!FILES[n]) continue;
+		// worked in stretches of fifty minutes with a break after each, until it was done or until now
+		const hours = Math.min(took ?? ago, ago, 9);
+		const spans: [number, number][] = [];
+		for (let h = 0; h + 0.2 < hours; h += 1.25) spans.push([minute(ago - h), minute(ago - Math.min(hours, h + 50 / 60))]);
+		const minutes = spans.reduce((sum, [from, to]) => sum + to - from, 0);
+		const from = CAME_FROM[n];
+		out[`demo-session-${n}`] = {
+			stamp: 'demo',
+			readAt: now,
+			root: '/home/you/app',
+			files: FILES[n].map((path, i) => ({ path, edits: 6 - Math.min(i, 4) })),
+			branches: [...(from ? [branchOf.get(from)!] : []), branchOf.get(n)!],
+			spans,
+			minutes,
+			added: minutes * 4,
+			removed: minutes,
+			tokens: minutes * 9000,
+			costUSD: Math.round(minutes * 11) / 100
+		};
+	}
+	return out;
 }

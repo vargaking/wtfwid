@@ -2,10 +2,13 @@
 	import { goto, refreshAll } from '$app/navigation';
 	import { onMount, tick, untrack } from 'svelte';
 	import LaneView from '#lib/LaneView.svelte';
-	import { layout, nextInState, restoreView, unfinished, type Cluster } from '#lib/layout.ts';
+	import type { Link } from '#lib/arcs.ts';
+	import { dayOf } from '#lib/days.ts';
+	import { DAY, layout, nextInState, restoreView, startOfDay, unfinished, type Cluster } from '#lib/layout.ts';
 	import type { Action, Graph, GraphNode, Lane, LiveEvent, NodeState } from '#lib/model.ts';
 	import { alerts, reliable, type Alert } from '#lib/notify.ts';
 	import Panel from '#lib/Panel.svelte';
+	import { relationsOf } from '#lib/relations.ts';
 	import Search from '#lib/Search.svelte';
 	import Settings from '#lib/Settings.svelte';
 	import Update from '#lib/Update.svelte';
@@ -44,22 +47,76 @@
 			// no storage: the view lasts until the window closes
 		}
 	});
-	const view = $derived(layout(graph, now, pxPerDay, hideFinished, undefined, new Set(unfolded)));
+	/** S-17: the finished line a ticket was opened on from a list, shown in full while that ticket is open. */
+	let peek = $state<string | null>(null);
+	const view = $derived(layout(graph, now, pxPerDay, hideFinished, undefined, new Set(unfolded), peek));
 	const fold = (id: string) => (unfolded = unfolded.includes(id) ? unfolded.filter((x) => x !== id) : [...unfolded, id]);
 	const byId = $derived(new Map(graph.lanes.flatMap((l) => l.nodes).map((n) => [n.id, n])));
 	const pickedNodes = $derived(picked.map((id) => byId.get(id)).filter((n): n is GraphNode => !!n));
 	const focus = $derived((focusId && byId.get(focusId)) || (pickedNodes.length === 1 ? pickedNodes[0] : null));
+	const laneOf = $derived(new Map(graph.lanes.flatMap((l) => l.nodes.map((n) => [n.id, l] as const))));
+	/** S-86: what the open ticket is related to, strongest first. At most this many are drawn and listed. */
+	const RELATED_SHOWN = 6;
+	const related = $derived(
+		focus
+			? relationsOf(graph.relations, focus.id)
+					.flatMap(({ other, relation }) => (byId.has(other) ? [{ node: byId.get(other)!, relation }] : []))
+					.slice(0, RELATED_SHOWN)
+			: []
+	);
+	/** The ways sessions went that pass through the open ticket (S-86): each the tickets one session worked on, in order. */
+	const ways = $derived(focus ? (graph.threads ?? []).filter((t) => t.nodes.includes(focus.id)) : []);
+	/**
+	 * What the timeline draws for the open ticket: its relations, and the whole way of every
+	 * session that worked on it, lighter away from the ticket itself.
+	 */
+	const links = $derived.by(() => {
+		const out = new Map<string, Link>(related.map((r) => [`${r.relation.a}>${r.relation.b}`, r.relation]));
+		for (const way of ways) {
+			for (let i = 1; i < way.nodes.length; i++) {
+				const [a, b] = [way.nodes[i - 1], way.nodes[i]];
+				if (out.has(`${a}>${b}`) || out.has(`${b}>${a}`)) continue;
+				out.set(`${a}>${b}`, { a, b, continued: true, weight: 0, far: a !== focus?.id && b !== focus?.id });
+			}
+		}
+		return [...out.values()];
+	});
 	const updated = $derived(new Date(now).toTimeString().slice(0, 5));
 	const left = $derived(unfinished(graph));
 
-	function pick(cluster: Cluster) {
+	const toPanel = () => document.getElementById('ticket-panel')?.focus({ preventScroll: true });
+
+	async function pick(cluster: Cluster) {
 		picked = cluster.nodes.map((n) => n.id);
 		focusId = null;
+		// a line that was opened for another ticket goes back to how it was
+		if (!cluster.nodes.some((n) => laneOf.get(n.id)?.id === peek)) peek = null;
+		await tick();
+		// the keyboard goes where the ticket is shown, not on through the rest of the timeline
+		toPanel();
 	}
 
+	/** Lets go of the open ticket; with none open, of the day (S-89). */
 	function clear() {
+		if (!picked.length) dayPick = null;
 		picked = [];
 		focusId = null;
+		peek = null;
+	}
+
+	// S-89: a date on the axis was clicked. The side panel says what happened then.
+	let dayPick = $state<{ from: number; to: number } | null>(null);
+	const day = $derived(dayPick ? dayOf(graph.lanes, dayPick.from, dayPick.to) : null);
+	const today = $derived(dayOf(graph.lanes, startOfDay(now)));
+	/** `days` is how many days the stretch covers; the same date again lets go of it. */
+	async function pickDay(from: number | null, days = 1) {
+		picked = [];
+		focusId = null;
+		peek = null;
+		// half a day past the last one, then back to midnight: right on days the clock changes too
+		dayPick = from === null || dayPick?.from === from ? null : { from, to: startOfDay(from + days * DAY + DAY / 2) };
+		await tick();
+		if (dayPick) toPanel();
 	}
 
 	const JUMPS = [
@@ -73,18 +130,19 @@
 
 	let timeline = $state<LaneView>();
 
-	/** Shows a ticket: unfolds or unhides its line if need be, selects it and scrolls to it. */
+	/**
+	 * Shows a ticket: selects it and scrolls to it. If its line is finished and hidden or
+	 * folded, the line is shown in full for as long as the ticket is open; what you chose to
+	 * hide or fold is not changed by looking something up.
+	 */
 	async function show(node: GraphNode, lane: Lane | undefined) {
-		if (lane?.closed) {
-			hideFinished = false;
-			if (!unfolded.includes(lane.id)) unfolded = [...unfolded, lane.id];
-		}
+		peek = lane?.closed ? lane.id : null;
 		picked = [node.id];
 		focusId = null;
 		await tick();
 		timeline?.reveal(node.id);
 		// hand the keyboard to the ticket that was just opened, not back to the top of the page
-		document.getElementById('ticket-panel')?.focus({ preventScroll: true });
+		toPanel();
 	}
 
 	/** S-15: go to the next ticket in this state, after the one that is open, and open it. */
@@ -283,13 +341,29 @@
 
 	<main class="flex min-h-0 flex-1 flex-col md:flex-row">
 		{#if graph.lanes.length}
-			<LaneView bind:this={timeline} {view} bind:pxPerDay {picked} onpick={pick} onfold={fold} />
+			<LaneView
+				bind:this={timeline}
+				{view}
+				bind:pxPerDay
+				{picked}
+				onpick={pick}
+				onfold={fold}
+				{links}
+				worked={focus?.work ? { spans: focus.work.spans, commits: focus.work.commits, state: focus.state } : null}
+				day={dayPick}
+				ondaypick={(t) => pickDay(t, t === startOfDay(now) ? 1 : view.tickDays)}
+			/>
 			<Panel
 				nodes={pickedNodes}
 				{focus}
 				onfocus={(id) => (focusId = id)}
 				unfinished={left.map((u) => u.node)}
-				onshow={(node) => show(node, left.find((u) => u.node.id === node.id)?.lane)}
+				onshow={(node) => show(node, laneOf.get(node.id))}
+				{related}
+				ways={ways.map((w) => ({ session: w.session, nodes: w.nodes.flatMap((id) => byId.get(id) ?? []) }))}
+				{day}
+				{today}
+				onday={pickDay}
 				onclear={clear}
 				{live}
 			/>

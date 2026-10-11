@@ -88,10 +88,11 @@ export async function replaceAppImage(target, asset, { fetcher = fetch, allowedP
 	const href = allowedUrl(asset.url, allowedPrefix);
 	if (!href) throw new UpdateError('The download link is not a wtfwid release.');
 	if (!Number.isSafeInteger(asset.size) || asset.size <= 0) throw new UpdateError('GitHub did not say how big the download is.');
-	// GitHub publishes a SHA-256 for every file uploaded since mid 2025. For an answer
-	// without one, only the size is checked: that catches a download cut short, not a
-	// file that was swapped.
+	// GitHub publishes a SHA-256 for every file uploaded since mid 2025. Without one there
+	// is nothing to tell the real file from a swapped one, so nothing is installed: the
+	// screen falls back to the link to the release page.
 	const digest = wantedDigest(asset.digest);
+	if (!digest) throw new UpdateError('GitHub published no checksum for this file.');
 
 	// Next to the AppImage, so moving it into place stays on one disk and happens at once.
 	const part = `${target}.download`;
@@ -122,7 +123,7 @@ export async function replaceAppImage(target, asset, { fetcher = fetch, allowedP
 		await pipeline(Readable.fromWeb(res.body), count, createWriteStream(part, { flags: 'wx', mode: 0o600, flush: true }));
 
 		if (bytes !== asset.size || (await stat(part)).size !== asset.size) throw new UpdateError(WRONG_SIZE);
-		if (digest && hash.digest('hex') !== digest) throw new UpdateError(WRONG_DIGEST);
+		if (hash.digest('hex') !== digest) throw new UpdateError(WRONG_DIGEST);
 
 		try {
 			await chmod(part, 0o755);

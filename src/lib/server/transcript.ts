@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { SessionNote } from '../model';
-import { storyReader } from './story';
+import { storyReader, withAgents } from './story';
 
 /**
  * Claude Code keeps one transcript per session: a .jsonl file with one entry per line.
@@ -156,22 +156,48 @@ export async function findTranscript(id: string, cwd: string, root = claudeHome(
 const cache = new Map<string, { stamp: string; note: SessionNote }>();
 
 /**
- * Reads a transcript: the note, and the story of what the session did. One pass over the
- * file for both. Reads it again only when the file has changed. `cwd` shortens the paths.
+ * The transcripts of a session's sub-agents. Claude Code keeps them beside the session's
+ * own: `<session id>/subagents/agent-<id>.jsonl`.
+ */
+export async function agentTranscripts(file: string): Promise<{ file: string; stamp: string }[]> {
+	const dir = join(file.replace(/\.jsonl$/, ''), 'subagents');
+	const names = (await readdir(dir).catch(() => [] as string[])).filter((n) => /^agent-[\w-]+\.jsonl$/.test(n)).sort();
+	const found = await Promise.all(names.map((n) => stat(join(dir, n)).then((info) => ({ file: join(dir, n), stamp: `${info.mtimeMs}:${info.size}` }), () => null)));
+	return found.filter((f): f is { file: string; stamp: string } => f !== null);
+}
+
+const lines = (file: string) => createInterface({ input: createReadStream(file, 'utf8'), crlfDelay: Infinity });
+
+/**
+ * Reads a transcript: the note, and the story of what the session did, its sub-agents
+ * included. One pass over each file. Reads again only when one of them has changed.
+ * `cwd` shortens the paths.
  */
 export async function readNote(file: string, cwd = ''): Promise<SessionNote> {
 	const s = await stat(file);
-	const stamp = `${s.mtimeMs}:${s.size}:${cwd}`;
+	const agents = await agentTranscripts(file);
+	const stamp = `${s.mtimeMs}:${s.size}:${cwd}:${agents.map((a) => a.stamp).join(',')}`;
 	const cached = cache.get(file);
 	if (cached?.stamp === stamp) return cached.note;
 
 	const reader = noteReader();
 	const story = storyReader(cwd);
-	for await (const line of createInterface({ input: createReadStream(file, 'utf8'), crlfDelay: Infinity })) {
+	for await (const line of lines(file)) {
 		reader.add(line);
 		story.add(line);
 	}
-	const note = { ...reader.done(), story: story.done() };
+	const theirs = [];
+	for (const agent of agents) {
+		const side = storyReader(cwd, true);
+		// one that cannot be read is left out; the session's own story still stands
+		try {
+			for await (const line of lines(agent.file)) side.add(line);
+			theirs.push(side.done());
+		} catch {
+			// gone since it was listed
+		}
+	}
+	const note = { ...reader.done(), story: withAgents(story.done(), theirs) };
 	cache.set(file, { stamp, note });
 	// keep the most recently read ones; a note is small but a year of sessions is many
 	if (cache.size > 300) cache.delete(cache.keys().next().value!);

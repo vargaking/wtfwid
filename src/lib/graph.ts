@@ -4,7 +4,7 @@ const ID_RE = /[a-z][a-z0-9]*-\d+/g;
 const HIDDEN_STATE_TYPES = new Set(['canceled', 'duplicate']);
 
 /** Finds the issue a session or pull request belongs to (S-50, S-51). */
-function matcher(issues: Issue[]) {
+export function matcher(issues: Issue[]) {
 	const byId = new Map(issues.map((i) => [i.id.toLowerCase(), i]));
 	const byBranch = issues.filter((i) => i.branchName).map((i) => [i.branchName.toLowerCase(), i] as const);
 	return (text: string): Issue | undefined => {
