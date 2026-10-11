@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { dayLabel } from './layout';
 	import Mark from './Mark.svelte';
-	import type { GraphNode, NodeState, SessionNote } from './model';
+	import { onMount } from 'svelte';
+	import type { Action, GraphNode, NodeState, SessionNote } from './model';
 	import { contextPack, resumeCommand } from './pack';
 
 	interface Props {
@@ -15,8 +16,38 @@
 		onshow: (node: GraphNode) => void;
 		/** back to nothing selected */
 		onclear: () => void;
+		/** the last things each running session did, by session id (S-85) */
+		live?: Record<string, Action[]>;
 	}
-	let { nodes, focus, onfocus, unfinished, onshow, onclear }: Props = $props();
+	let { nodes, focus, onfocus, unfinished, onshow, onclear, live = {} }: Props = $props();
+
+	// S-85: a clock, so "12 s ago" keeps counting between events
+	let clock = $state(Date.now());
+	onMount(() => {
+		const timer = setInterval(() => (clock = Date.now()), 5000);
+		return () => clearInterval(timer);
+	});
+
+	/** How a line of the live feed reads: what you typed and what Claude said are told apart from what it did. */
+	const feed = (a: Action) => (a.tool === 'you' ? `You: ${a.text}` : a.tool === 'says' ? `“${a.text}”` : a.text);
+	function since(iso: string | null): string {
+		if (!iso) return '';
+		const seconds = Math.max(0, Math.round((clock - Date.parse(iso)) / 1000));
+		if (seconds < 10) return 'now';
+		if (seconds < 90) return `${seconds} s`;
+		if (seconds < 5400) return `${Math.round(seconds / 60)} min`;
+		return `${Math.round(seconds / 3600)} h`;
+	}
+	/** The latest thing a ticket's running sessions did, for the list of unfinished work. */
+	function doing(node: GraphNode): Action | undefined {
+		return node.sessions
+			.filter((s) => !s.gone)
+			.flatMap((s) => live[s.id]?.at(-1) ?? [])
+			.sort((a, b) => (a.at ?? '').localeCompare(b.at ?? ''))
+			.at(-1);
+	}
+	/** How many of a session's latest actions the panel shows. */
+	const FEED_SHOWN = 6;
 
 	/** At most this many unfinished tickets are listed; the rest are counted. */
 	const LISTED = 10;
@@ -165,7 +196,19 @@
 						<div class="s-{s.state}" style="color: var(--tone)">
 							{SESSION_LABEL[s.state]}{#if s.waitingFor}: {s.waitingFor}{/if}{#if s.gone}, no longer listed{/if}
 						</div>
-						<div class="font-mono text-xs break-all text-muted">{s.cwd}</div>
+						{#if !s.gone && live[s.id]?.length}
+							<!-- S-85: what it is doing, newest first; filled by the stream as it happens -->
+							<div class="mt-2 font-mono text-[11px] tracking-[0.06em] text-muted uppercase">Right now</div>
+							<ol class="mt-0.5 flex flex-col gap-0.5 font-mono text-xs" aria-live="off">
+								{#each live[s.id].slice(-FEED_SHOWN).reverse() as a, i (`${a.at}:${a.text}:${i}`)}
+									<li class="flex items-baseline gap-2 {i === 0 ? 's-working' : 'text-muted'}" style={i === 0 ? 'color: var(--tone)' : ''}>
+										<span class="min-w-0 flex-1 truncate" title={feed(a)}>{feed(a)}</span>
+										<span class="flex-none text-muted">{since(a.at)}</span>
+									</li>
+								{/each}
+							</ol>
+						{/if}
+						<div class="mt-1.5 font-mono text-xs break-all text-muted">{s.cwd}</div>
 						{#if s.branch}
 							<div class="font-mono text-xs break-all text-muted">on {s.branch}</div>
 						{/if}
@@ -337,6 +380,13 @@
 								<span class="flex-none text-muted">{age(n.at)}</span>
 							</span>
 							<span class="line-clamp-2 leading-snug">{n.title}</span>
+							{#if doing(n)}
+								{@const a = doing(n)!}
+								<span class="mt-0.5 flex items-baseline gap-2 font-mono text-[11px] text-working">
+									<span class="min-w-0 flex-1 truncate">{feed(a)}</span>
+									<span class="flex-none text-muted">{since(a.at)}</span>
+								</span>
+							{/if}
 						</span>
 					</button>
 				</li>

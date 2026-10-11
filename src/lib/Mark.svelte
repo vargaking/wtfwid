@@ -8,8 +8,10 @@
 		count?: number;
 		selected?: boolean;
 		small?: boolean;
+		/** Something is happening on it right now: the mark breathes (S-85). */
+		alive?: boolean;
 	}
-	let { state, stage, count = 0, selected = false, small = false }: Props = $props();
+	let { state, stage, count = 0, selected = false, small = false, alive = false }: Props = $props();
 </script>
 
 <span
@@ -20,6 +22,7 @@
 	class:pill={stage === null}
 	class:selected
 	class:small
+	class:alive
 >
 	{#if stage === null}{count}{/if}
 </span>
@@ -68,5 +71,22 @@
 	}
 	.selected {
 		outline-color: var(--color-ink);
+	}
+	.alive {
+		animation: breathe 2.4s ease-in-out infinite;
+	}
+	@keyframes breathe {
+		0%,
+		100% {
+			box-shadow: 0 0 0 0 color-mix(in srgb, var(--stroke) 60%, transparent);
+		}
+		60% {
+			box-shadow: 0 0 0 7px transparent;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.alive {
+			animation: none;
+		}
 	}
 </style>

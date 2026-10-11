@@ -3,7 +3,7 @@
 	import { onMount, tick, untrack } from 'svelte';
 	import LaneView from '#lib/LaneView.svelte';
 	import { layout, nextInState, restoreView, unfinished, type Cluster } from '#lib/layout.ts';
-	import type { Graph, GraphNode, Lane, NodeState } from '#lib/model.ts';
+	import type { Action, Graph, GraphNode, Lane, LiveEvent, NodeState } from '#lib/model.ts';
 	import { alerts, reliable, type Alert } from '#lib/notify.ts';
 	import Panel from '#lib/Panel.svelte';
 	import Search from '#lib/Search.svelte';
@@ -96,6 +96,11 @@
 	// fresh: data loaded before the save would still say "not connected".
 	const reload = () => (graph.demo ? goto('/', { invalidateAll: true }) : refreshAll());
 
+	/** The last things each running session did, by session id, kept up to date by the stream (S-85). */
+	let live = $state<Record<string, Action[]>>({});
+	let streaming = false;
+	const LIVE_KEPT = 12;
+
 	// S-18: say so when a ticket starts needing you, a session fails, or one stops working.
 	const canNotify = typeof Notification !== 'undefined';
 	let notifyOn = $state(false);
@@ -154,6 +159,23 @@
 		}
 
 		const refresh = () => !graph.setup && refreshAll();
+
+		// S-85: a stream from the server that says what running sessions are doing as it happens,
+		// and when a session starts, stops or changes state. It reconnects by itself.
+		let stream: EventSource | undefined;
+		if (typeof EventSource !== 'undefined') {
+			stream = new EventSource('/api/live');
+			stream.onopen = () => (streaming = true);
+			stream.onerror = () => (streaming = false);
+			stream.onmessage = (message) => {
+				const event = JSON.parse(message.data) as LiveEvent;
+				if (event.type === 'hello') live = event.sessions;
+				else if (event.type === 'actions') live[event.id] = [...(live[event.id] ?? []), ...event.actions].slice(-LIVE_KEPT);
+				else if (event.type === 'sessions') refresh();
+			};
+		}
+
+		// Without the stream, ask now and then whether a session changed state (S-18).
 		let beat: string | null = null;
 		const check = async () => {
 			if (graph.setup || graph.demo) return;
@@ -164,10 +186,11 @@
 		};
 		check();
 		const slow = setInterval(refresh, 60_000);
-		const fast = setInterval(check, 15_000);
+		const fast = setInterval(() => !streaming && check(), 15_000);
 		const onVisible = () => document.visibilityState === 'visible' && check();
 		document.addEventListener('visibilitychange', onVisible);
 		return () => {
+			stream?.close();
 			clearInterval(slow);
 			clearInterval(fast);
 			document.removeEventListener('visibilitychange', onVisible);
@@ -266,6 +289,7 @@
 				unfinished={left.map((u) => u.node)}
 				onshow={(node) => show(node, left.find((u) => u.node.id === node.id)?.lane)}
 				onclear={clear}
+				{live}
 			/>
 		{:else}
 			<div class="flex flex-1 items-center justify-center px-6 text-center">

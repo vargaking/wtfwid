@@ -91,7 +91,7 @@
 		onpointerup={() => (dragging = false)}
 		onpointerleave={() => (dragging = false)}
 	>
-		<div class="relative min-h-full select-none" style="width: {view.width}px; height: {view.height}px">
+		<div class="relative min-h-full min-w-full select-none" style="width: {view.width}px; height: {view.height}px">
 			{#each view.ticks as t (t.x)}
 				<div aria-hidden="true" class="absolute inset-y-0 w-px bg-grid" style="left: {t.x}px"></div>
 			{/each}
@@ -156,7 +156,7 @@
 							style="left: {c.markX}px; top: {cy}px"
 							onclick={() => onpick(c)}
 						>
-							<Mark state={c.state} stage={c.stage} count={c.nodes.length} selected={isPicked(c)} small={box.folded || (c.quiet && c.stage !== null)} />
+							<Mark state={c.state} stage={c.stage} count={c.nodes.length} selected={isPicked(c)} small={box.folded || (c.quiet && c.stage !== null)} alive={c.state === 'working' || c.state === 'needs'} />
 						</button>
 						{#if c.label}
 							<!-- starts clear of the selection ring around the mark -->

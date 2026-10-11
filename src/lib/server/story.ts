@@ -108,6 +108,39 @@ function typed(entry: Entry): string {
 	return blocks.map(withoutInjected).filter(Boolean).join('\n\n');
 }
 
+/**
+ * What one line of a transcript says happened, for the live feed (S-85): the tools Claude
+ * called, the first line of what it said, and what you typed. Nothing for lines that are
+ * results, housekeeping, or a sub-agent's.
+ */
+export function actionsFrom(line: string, cwd: string): Action[] {
+	if (line.includes('"type":"tool_result"')) return [];
+	if (!line.includes('"type":"assistant"') && !line.includes('"type":"user"')) return [];
+	let entry: Entry;
+	try {
+		entry = JSON.parse(line);
+	} catch {
+		return [];
+	}
+	if (entry.isSidechain || (entry.type !== 'assistant' && entry.type !== 'user')) return [];
+	const at = entry.timestamp ?? null;
+	if (entry.type === 'user') {
+		if (entry.isMeta || entry.isCompactSummary || (entry.origin?.kind && entry.origin.kind !== 'human')) return [];
+		const text = typed(entry);
+		return text ? [{ at, tool: 'you', text: oneLine(text, 120) }] : [];
+	}
+	const out: Action[] = [];
+	const content = entry.message?.content;
+	for (const block of Array.isArray(content) ? content : []) {
+		if (block?.type === 'text' && block.text?.trim()) out.push({ at, tool: 'says', text: oneLine(block.text, 120) });
+		else if (block?.type === 'tool_use') {
+			const text = describeAction(str(block.name), block.input && typeof block.input === 'object' ? block.input : {}, cwd);
+			if (text) out.push({ at, tool: str(block.name), text });
+		}
+	}
+	return out;
+}
+
 /** Takes a transcript one line at a time. `cwd` is the session's folder, for short paths. */
 export function storyReader(cwd: string) {
 	const files = new Map<string, { edits: number; created: boolean }>();
