@@ -73,6 +73,12 @@ pnpm dist        # writes an installer for your OS into dist/
 
 `pnpm build && pnpm start` serves the same screen on `127.0.0.1:4173`.
 
+## When something does not show up
+
+Open Settings and press **Check**. It tries Linear, GitHub and Claude Code with the
+settings as saved and says what each gave back, and how many sessions ended up on a
+ticket. It shows counts only, so you can paste the result into an issue.
+
 ## How a session ends up on the right ticket
 
 By branch or by name. A session or pull request belongs to a ticket when its branch, name

@@ -160,3 +160,26 @@ export async function lastBranch(file: string, bytes = 256 * 1024): Promise<stri
 		await handle.close();
 	}
 }
+
+/**
+ * The branches a session was on, in order, each time it changed. More than one means the
+ * session moved: it started on one piece of work and went on to another.
+ */
+export async function branchHistory(file: string): Promise<string[]> {
+	const seen: string[] = [];
+	for await (const line of createInterface({ input: createReadStream(file, 'utf8'), crlfDelay: Infinity })) {
+		// the field sits outside the message, so the last one on a line is the entry's own
+		const at = line.lastIndexOf('"gitBranch":"');
+		if (at < 0) continue;
+		const raw = /^"gitBranch":"((?:[^"\\]|\\.)*)"/.exec(line.slice(at, at + 400))?.[1];
+		if (raw === undefined) continue;
+		let branch: string | null = null;
+		try {
+			branch = branchOf(JSON.parse(`"${raw}"`));
+		} catch {
+			// not a string we can read
+		}
+		if (branch && branch !== seen.at(-1)) seen.push(branch);
+	}
+	return seen;
+}
