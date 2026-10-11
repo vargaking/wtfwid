@@ -23,17 +23,23 @@
 	const SESSION_LABEL = { needs: 'waiting for you', working: 'working', failed: 'failed', open: 'idle', done: 'finished' };
 
 	// S-55: what each session of the open ticket was doing, read from its transcript on demand.
-	let notes = $state<Record<string, SessionNote>>({});
+	// For each session: its note, null when its transcript is gone, nothing yet while it is being read.
+	let notes = $state<Record<string, SessionNote | null>>({});
 	let expanded = $state<Record<string, boolean>>({});
 	const settled = new Set<string>();
 	$effect(() => {
 		for (const s of focus?.sessions ?? []) {
 			if (settled.has(s.id)) continue;
-			if (s.gone) settled.add(s.id); // an ended session's transcript no longer changes
 			fetch(`/api/session/${encodeURIComponent(s.id)}`)
-				.then((r) => (r.ok ? r.json() : null))
-				.then((note: SessionNote | null) => {
-					if (note) notes[s.id] = note;
+				.then((r) => {
+					if (r.ok) return r.json() as Promise<SessionNote>;
+					if (r.status === 404) return null;
+					throw new Error(`HTTP ${r.status}`);
+				})
+				.then((note) => {
+					notes[s.id] = note;
+					// an ended session's transcript no longer changes; a failed read is tried again next time
+					if (s.gone) settled.add(s.id);
 				})
 				.catch(() => {});
 		}
