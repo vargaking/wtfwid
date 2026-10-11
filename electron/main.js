@@ -174,6 +174,7 @@ async function start() {
 			res.end();
 			return;
 		}
+		req.headers['x-wtfwid-protocol'] = 'http';
 		handler(req, res, () => {
 			res.statusCode = 404;
 			res.end();
@@ -187,7 +188,10 @@ async function start() {
 		server.listen(PORT, '127.0.0.1', resolve);
 	});
 	const origin = `http://127.0.0.1:${server.address().port}`;
-	process.env.ORIGIN = origin; // the server reads this when it loads
+	// The built server takes "http or https" from a request header, and assumes https when
+	// there is none. The window talks plain http, so every request says so (see above),
+	// under a name of our own that replaces whatever the page sent.
+	process.env.PROTOCOL_HEADER = 'x-wtfwid-protocol';
 	({ handler } = await import('../build/handler.js'));
 
 	await session.defaultSession.cookies.set({ url: origin, name: 'wtfwid', value: token, httpOnly: true, sameSite: 'strict' });
