@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AXIS_H, DAY, LANE_H, LINE_Y, MAX_ROWS, ROW_H, layout, nextInState } from './layout';
+import { AXIS_H, DAY, LANE_H, LINE_Y, MAX_ROWS, ROW_H, layout, nextInState, xOf } from './layout';
 import type { Graph, GraphNode, Lane, NodeState } from './model';
 
 const NOW = Date.parse('2026-10-10T12:00:00.000Z');
@@ -33,6 +33,23 @@ const graph = (lanes: Lane[]): Graph => ({ fetchedAt: new Date(NOW).toISOString(
 const hourly = (count: number, state: NodeState = 'done') =>
 	Array.from({ length: count }, (_, i) => node(`n${i}`, new Date(NOW - i * 3_600_000).toISOString(), state)).reverse();
 
+/** A repeatable stand-in for chance, so a failing case can be found again. */
+function chance(seed: number) {
+	return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+}
+const STATES: NodeState[] = ['done', 'done', 'done', 'working', 'needs', 'open', 'review', 'failed'];
+/** A lane the way real ones look: bursts of tickets within the hour, of every state and title length. */
+function busy(seed: number, count: number): GraphNode[] {
+	const next = chance(seed);
+	let t = NOW - 9 * DAY;
+	return Array.from({ length: count }, (_, i) => {
+		t += next() < 0.6 ? next() * 3_600_000 : next() * 1.5 * DAY;
+		return { ...node(`ENG-${i + 1}`, new Date(Math.min(t, NOW)).toISOString(), STATES[Math.floor(next() * STATES.length)]), title: 'x'.repeat(3 + Math.floor(next() * 50)) };
+	});
+}
+const ZOOMS = [12, 53, 160, 600, 1600];
+const xAt = (n: GraphNode, view: { t0: number }, pxPerDay: number) => Math.round(xOf(Date.parse(n.at), view.t0, pxPerDay));
+
 describe('rows', () => {
 	const g = graph([
 		lane('a', [
@@ -58,37 +75,88 @@ describe('rows', () => {
 		expect(a.height).toBe(LANE_H);
 	});
 
-	it('S-35 merges into a counted cluster only when every row is taken', () => {
-		const busy = graph([lane('a', [...hourly(39), node('late', new Date(NOW).toISOString(), 'needs')])]);
-		const { clusters } = layout(busy, NOW, 12).lanes[0];
-		expect(Math.max(...clusters.map((c) => c.row))).toBe(MAX_ROWS - 1);
-		expect(clusters.reduce((n, c) => n + c.nodes.length, 0)).toBe(40);
-		const merged = clusters.find((c) => c.nodes.some((n) => n.id === 'late'))!;
-		expect(merged).toMatchObject({ state: 'needs', stage: null, label: `${merged.nodes.length} tickets` });
+	it('S-35 keeps every single ticket at its own time', () => {
+		for (const pxPerDay of ZOOMS) {
+			const view = layout(graph([lane('a', busy(7, 60))]), NOW, pxPerDay);
+			for (const c of view.lanes[0].clusters) expect(c.x).toBe(xAt(c.nodes[0], view, pxPerDay));
+		}
 	});
 
-	it('S-35 never draws two things over each other', () => {
-		for (const pxPerDay of [12, 160, 600]) {
-			const { clusters } = layout(graph([lane('a', hourly(40, 'working'))]), NOW, pxPerDay).lanes[0];
-			for (const row of new Set(clusters.map((c) => c.row))) {
-				const inRow = clusters.filter((c) => c.row === row);
-				for (let i = 1; i < inRow.length; i++) expect(inRow[i].x - 12).toBeGreaterThanOrEqual(inRow[i - 1].right);
+	it('S-35 never draws two things in a row over each other, at any zoom', () => {
+		for (const seed of [1, 2, 3, 4, 5, 6]) {
+			for (const pxPerDay of ZOOMS) {
+				const { clusters } = layout(graph([lane('a', busy(seed, 60))]), NOW, pxPerDay).lanes[0];
+				expect(clusters.reduce((n, c) => n + c.nodes.length, 0)).toBe(60);
+				for (let row = 0; row < MAX_ROWS; row++) {
+					const inRow = clusters.filter((c) => c.row === row).sort((a, b) => a.x - b.x);
+					for (let i = 1; i < inRow.length; i++) expect(inRow[i].left, `seed ${seed}, ${pxPerDay} px/day, row ${row}`).toBeGreaterThanOrEqual(inRow[i - 1].right + 4);
+				}
 			}
 		}
+	});
+
+	it('S-35 cuts a name short before it merges anything', () => {
+		// five tickets in play within four hours take all five rows with their names; two more start a day later
+		const burst = [0, 1, 2, 3, 4].map((h) => ({ ...node(`ENG-${h + 1}`, `2026-10-08T${String(9 + h).padStart(2, '0')}:00:00.000Z`, 'working'), title: 'Reconnect after a network change' }));
+		const later = [node('ENG-6', '2026-10-09T14:00:00.000Z', 'needs'), node('ENG-7', '2026-10-09T16:30:00.000Z', 'working')];
+		const view = layout(graph([lane('a', [...burst, ...later])]), NOW, 160);
+		const { clusters } = view.lanes[0];
+		expect(clusters.map((c) => c.nodes.length)).toEqual([1, 1, 1, 1, 1, 1, 1]);
+		const six = clusters.find((c) => c.key === 'ENG-6')!;
+		expect(six.x).toBe(xAt(later[0], view, 160));
+		expect(six.label).toBe('ENG-6');
+		// the ticket before it in that row keeps as much of its name as fits
+		const before = clusters.find((c) => c.row === six.row && c.x < six.x)!;
+		expect(before.label).toMatch(/^ENG-\d · Reconnect.*…$/);
+		expect(before.right + 4).toBeLessThanOrEqual(six.left);
+	});
+
+	it('S-35 merges only when a mark is in the way in every row, and then into the nearest in time', () => {
+		for (const pxPerDay of [12, 53]) {
+			const view = layout(graph([lane('a', busy(3, 60))]), NOW, pxPerDay);
+			const merged = view.lanes[0].clusters.filter((c) => c.nodes.length > 1);
+			expect(merged.length).toBeGreaterThan(0);
+			expect(Math.max(...view.lanes[0].clusters.map((c) => c.row))).toBe(MAX_ROWS - 1);
+			// a node that was merged started within reach of the cluster's own mark
+			for (const c of merged) for (const n of c.nodes) expect(xAt(n, view, pxPerDay) - c.right).toBeLessThan(4 + 12);
+		}
+	});
+
+	it('S-35 colours a cluster by its most urgent member and counts it', () => {
+		const old = Array.from({ length: 12 }, (_, i) => node(`old${i}`, new Date(NOW - 20 * DAY + i * 3_600_000).toISOString()));
+		const lots = graph([lane('a', [...old, ...hourly(12), node('late', new Date(NOW).toISOString(), 'needs')])]);
+		const { clusters } = layout(lots, NOW, 12).lanes[0];
+		const merged = clusters.find((c) => c.nodes.some((n) => n.id === 'late'))!;
+		expect(merged).toMatchObject({ state: 'needs', stage: null, quiet: false, label: `${merged.nodes.length} tickets` });
+		expect(clusters.find((c) => c.nodes.length > 1 && c.nodes.every((n) => n.state === 'done'))).toMatchObject({ quiet: true, label: null });
+		// its pill starts where its first ticket is and reaches towards the later ones
+		expect(merged.markX).toBeGreaterThan(merged.x);
+		expect(merged.left).toBe(merged.x - 12);
 	});
 });
 
 describe('labels', () => {
 	const titled = (id: string, at: string, state: NodeState) => ({ ...node(id, at, state), title: 'Reconnect after a network change' });
 
-	it('S-36 names work in play in full, whatever the zoom', () => {
+	it('S-36 names work in play in full while there is a row with room for it', () => {
 		const g = graph([lane('a', [titled('ENG-1', '2026-10-08T09:00:00.000Z', 'working'), titled('ENG-2', '2026-10-08T10:00:00.000Z', 'needs')])]);
-		const { clusters } = layout(g, NOW, 12).lanes[0];
-		expect(clusters.map((c) => [c.label, c.quiet, c.row])).toEqual([
-			['ENG-1 · Reconnect after a network…', false, 0],
-			['ENG-2 · Reconnect after a network…', false, 1]
-		]);
-		expect(clusters[0].title).toBe('ENG-1 · Reconnect after a network change, working');
+		for (const pxPerDay of ZOOMS.slice(0, 3)) {
+			const { clusters } = layout(g, NOW, pxPerDay).lanes[0];
+			expect(clusters.map((c) => [c.label, c.quiet, c.row])).toEqual([
+				['ENG-1 · Reconnect after a network…', false, 0],
+				['ENG-2 · Reconnect after a network…', false, 1]
+			]);
+		}
+		expect(layout(g, NOW, 160).lanes[0].clusters[0].title).toBe('ENG-1 · Reconnect after a network change, working');
+	});
+
+	it('S-36 names six tickets in play started an hour apart as far as each has room', () => {
+		const six = [9, 10, 11, 12, 13, 14].map((h, i) => titled(`ENG-${i + 1}`, `2026-10-08T${String(h).padStart(2, '0')}:00:00.000Z`, 'working'));
+		const { clusters } = layout(graph([lane('a', six)]), NOW, 160).lanes[0];
+		// all six are drawn on their own; the one that shares a row with the sixth has no room for a name
+		expect(clusters.map((c) => c.nodes.length)).toEqual([1, 1, 1, 1, 1, 1]);
+		expect(clusters.filter((c) => c.label?.includes('Reconnect'))).toHaveLength(5);
+		expect(clusters.filter((c) => c.label === null).map((c) => c.title)).toEqual(['ENG-1 · Reconnect after a network change, working']);
 	});
 
 	it('S-36 names finished work only as far as there is room', () => {
@@ -107,6 +175,18 @@ describe('labels', () => {
 		const session = { ...node('s1', '2026-10-09T09:00:00.000Z', 'working'), label: 'try-bun-runti…', title: 'try-bun-runtime', status: null };
 		const [c] = layout(graph([lane('unsorted', [session], { kind: 'unsorted' })]), NOW, 160).lanes[0].clusters;
 		expect(c.label).toBe('try-bun-runtime');
+	});
+
+	it('S-36 draws a session that ended without a ticket as history, even one that failed', () => {
+		const ended = (id: string, state: 'open' | 'failed', gone: boolean) => ({
+			...node(id, '2026-10-03T09:00:00.000Z', state),
+			status: null,
+			sessions: [{ id, name: id, cwd: '/r', kind: 'background' as const, startedAt: '2026-10-03T09:00:00.000Z', state, waitingFor: null, gone }]
+		});
+		const [box] = layout(graph([lane('unsorted', [ended('a', 'open', true), ended('b', 'failed', true), ended('c', 'failed', false)], { kind: 'unsorted' })]), NOW, 1600).lanes;
+		expect(box.clusters.map((c) => [c.key, c.quiet])).toEqual([['a', true], ['b', true], ['c', false]]);
+		// only the one Claude Code still lists counts as failed
+		expect(box.status).toBe('1 failed');
 	});
 });
 
