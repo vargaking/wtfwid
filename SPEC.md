@@ -68,7 +68,7 @@ One state per ticket, the first of these that applies:
 - **S-56** open — "Same files" links between tickets, from pull request file lists. Not built.
 - **S-57** assumed — Context pack: an unfinished ticket has a button that copies a prompt for a new session. It holds what wtfwid knows: the ticket's ID, status and link, the branch and folder, its pull requests, and for each earlier session what it was started with, the last thing asked and how it ended. It does not copy the ticket's own text; the new session reads that from Linear. Open: choosing what else to pull in (related tickets, files).
 - **S-58** open — A written "decided / still open" summary per session. Needs a session-end hook that runs a model over the transcript: tokens on every session, and a change to your Claude Code settings. Not built; S-55 gets most of it for free.
-- **S-59** assumed — A session whose transcript is still on the machine has a button that copies the command to resume it: `cd <its folder> && claude --resume <its id>`. wtfwid copies; it does not run anything.
+- **S-59** assumed — A session whose transcript is still on the machine has a button that copies the command to resume it: `cd <its folder> && claude --resume <its id>`. wtfwid copies; it does not run anything. For a Windows folder the command is written for PowerShell (`cd '…'; claude --resume …`); that form has not been run on Windows.
 
 ## Sources
 
