@@ -160,5 +160,5 @@ export function buildGraph(snap: Snapshot): Graph {
 		ordered.push({ id: 'unsorted', name: 'Unsorted', project: null, kind: 'unsorted', parent: null, closed: false, nodes: loose });
 	}
 
-	return { fetchedAt: snap.fetchedAt, demo: snap.demo, warnings: snap.warnings, lanes: ordered };
+	return { fetchedAt: snap.fetchedAt, demo: snap.demo, setup: !!snap.setup, warnings: snap.warnings, lanes: ordered };
 }

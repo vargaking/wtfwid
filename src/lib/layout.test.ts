@@ -28,7 +28,7 @@ const lane = (id: string, nodes: GraphNode[], over: Partial<Lane> = {}): Lane =>
 	nodes,
 	...over
 });
-const graph = (lanes: Lane[]): Graph => ({ fetchedAt: new Date(NOW).toISOString(), demo: false, warnings: [], lanes });
+const graph = (lanes: Lane[]): Graph => ({ fetchedAt: new Date(NOW).toISOString(), demo: false, setup: false, warnings: [], lanes });
 
 describe('clusters', () => {
 	const g = graph([

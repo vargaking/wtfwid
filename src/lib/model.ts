@@ -50,6 +50,8 @@ export interface Session {
 export interface Snapshot {
 	fetchedAt: string;
 	demo: boolean;
+	/** Nothing is connected yet; the screen shows first-run setup instead of a timeline. */
+	setup?: boolean;
 	warnings: string[];
 	issues: Issue[];
 	prs: PullRequest[];
@@ -92,6 +94,7 @@ export interface Lane {
 export interface Graph {
 	fetchedAt: string;
 	demo: boolean;
+	setup: boolean;
 	warnings: string[];
 	lanes: Lane[];
 }

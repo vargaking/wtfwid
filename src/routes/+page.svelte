@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { refreshAll } from '$app/navigation';
+	import { goto, refreshAll } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import LaneView from '#lib/LaneView.svelte';
 	import { layout, type Cluster } from '#lib/layout.ts';
@@ -7,6 +7,7 @@
 	import type { GraphNode } from '#lib/model.ts';
 	import Panel from '#lib/Panel.svelte';
 	import Settings from '#lib/Settings.svelte';
+	import Welcome from '#lib/Welcome.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -30,13 +31,20 @@
 		focusId = null;
 	}
 
+	// After settings change: leave the demo if we were in it, and load again. Always fetch
+	// fresh: data loaded before the save would still say "not connected".
+	const reload = () => (graph.demo ? goto('/', { invalidateAll: true }) : refreshAll());
+
 	// S-65
 	onMount(() => {
-		const timer = setInterval(() => refreshAll(), 60_000);
+		const timer = setInterval(() => !graph.setup && refreshAll(), 60_000);
 		return () => clearInterval(timer);
 	});
 </script>
 
+{#if graph.setup}
+	<Welcome onsaved={reload} />
+{:else}
 <div class="flex h-screen flex-col">
 	<header class="flex flex-wrap items-center gap-x-7 gap-y-2 border-b border-edge px-6 py-3">
 		<div class="flex items-baseline gap-3">
@@ -55,6 +63,7 @@
 			<span class="inline-flex items-center gap-2"><Mark state="done" stage="pr" small />has a pull request</span>
 			{#if graph.demo}
 				<span class="rounded border border-rail px-2 py-0.5 font-mono text-xs">demo data</span>
+				<a class="underline underline-offset-2 hover:text-ink" href="/">leave demo</a>
 			{/if}
 			<button
 				type="button"
@@ -82,9 +91,22 @@
 	</header>
 
 	<main class="flex min-h-0 flex-1 flex-col md:flex-row">
-		<LaneView {view} bind:pxPerDay {picked} onpick={pick} />
-		<Panel nodes={pickedNodes} {focus} onfocus={(id) => (focusId = id)} />
+		{#if graph.lanes.length}
+			<LaneView {view} bind:pxPerDay {picked} onpick={pick} />
+			<Panel nodes={pickedNodes} {focus} onfocus={(id) => (focusId = id)} />
+		{:else}
+			<div class="flex flex-1 items-center justify-center px-6 text-center">
+				<div class="max-w-md">
+					<h2 class="text-xl font-semibold">Nothing on the timeline yet</h2>
+					<p class="mt-2 text-muted">
+						A ticket shows up once it has been started or completed, or has a Claude Code session or a pull request. If you expected
+						some here, check the team key in Settings.
+					</p>
+				</div>
+			</div>
+		{/if}
 	</main>
 </div>
 
-<Settings bind:open={settingsOpen} onsaved={() => refreshAll()} />
+<Settings bind:open={settingsOpen} onsaved={reload} />
+{/if}

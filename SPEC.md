@@ -73,7 +73,8 @@ One state per ticket, the first of these that applies:
 - **S-60** assumed — Linear: GraphQL API with a personal API key, all issues of one team.
 - **S-61** assumed — GitHub: the latest 300 pull requests of each configured repository.
 - **S-62** assumed — Claude Code: `claude agents --json --all`, the supported way to read session state.
-- **S-63** assumed — With no Linear key configured, the screen shows invented demo data and says so.
+- **S-63** stated — On first open, with no Linear key, the screen shows a short setup form, not made-up data. Assumed: invented demo data is still there for anyone who asks for it (`/?demo`), and says that it is demo data.
+- **S-66** assumed — When Linear is connected but nothing has been started yet, the screen says so instead of showing an empty timeline.
 - **S-64** assumed — If one source fails, the others still load and the screen shows a warning.
 - **S-65** assumed — The screen reloads its data every 60 seconds.
 

@@ -6,11 +6,18 @@ import { fetchPullRequests, githubToken } from './github';
 import { fetchIssues } from './linear';
 import { collectSessions } from './sessions';
 
-/** Reads all three sources. A source that fails becomes a warning, not an error (S-64). */
-export async function collect(now = Date.now()): Promise<Snapshot> {
+/**
+ * Reads all three sources. A source that fails becomes a warning, not an error (S-64).
+ * With no Linear key there is nothing to read yet: the screen shows first-run setup.
+ * Demo data is only shown when asked for (S-63).
+ */
+export async function collect(now = Date.now(), demo = false): Promise<Snapshot> {
+	if (demo) return demoSnapshot(now);
 	const cfg = await config();
 	if (cfg.snapshotFile) return JSON.parse(await readFile(cfg.snapshotFile, 'utf8'));
-	if (!cfg.linearKey) return demoSnapshot(now); // S-63
+	if (!cfg.linearKey) {
+		return { fetchedAt: new Date(now).toISOString(), demo: false, setup: true, warnings: [], issues: [], prs: [], sessions: [] };
+	}
 
 	const warnings: string[] = [];
 	const guard = <T>(source: string, job: Promise<T[]>): Promise<T[]> =>

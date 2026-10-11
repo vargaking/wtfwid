@@ -26,7 +26,8 @@ pnpm desktop     # builds and opens the desktop app
 
 Or in a browser: `pnpm dev`.
 
-With nothing configured it shows demo data. Click **Connect Linear** and fill in:
+On first open it asks for your Linear key. (To look around with invented data first, follow
+the demo link on that screen.) Everything can be changed later under **Settings**:
 
 | Setting | What it is |
 | --- | --- |
