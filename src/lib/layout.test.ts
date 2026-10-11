@@ -221,6 +221,15 @@ describe('jumping', () => {
 		expect(nextInState(v, 'open', null)?.id).toBe('a1');
 	});
 
+	it('S-15 does not count a session that ended without a ticket as open work', () => {
+		const ended = { ...node('session:s1', '2026-10-03T09:00:00.000Z', 'open'), status: null, sessions: [{ id: 's1', name: 'scratch', cwd: '/r', kind: 'interactive' as const, startedAt: '2026-10-03T09:00:00.000Z', state: 'open' as const, waitingFor: null, gone: true }] };
+		const live = { ...ended, id: 'session:s2', sessions: [{ ...ended.sessions[0], id: 's2', gone: false }] };
+		const v = layout(graph([lane('unsorted', [ended, live], { kind: 'unsorted' })]), NOW, 160);
+		expect(v.counts.open).toBe(1);
+		expect(nextInState(v, 'open', null)?.id).toBe('session:s2');
+		expect(nextInState(v, 'open', 'session:s2')?.id).toBe('session:s2');
+	});
+
 	it('S-15 skips lanes that are hidden', () => {
 		expect(nextInState(view, 'done', null)?.id).toBe('c1');
 		expect(nextInState(layout(g, NOW, 160, true), 'done', null)).toBeNull();
