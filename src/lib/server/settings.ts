@@ -92,7 +92,9 @@ export function parsePatch(body: unknown): SettingsPatch | string {
 	}
 	if (b.githubRepos !== undefined) {
 		if (!Array.isArray(b.githubRepos) || b.githubRepos.some((r) => typeof r !== 'string')) return 'Repositories must be a list.';
-		const repos = (b.githubRepos as string[]).map((r) => r.trim()).filter(Boolean);
+		// the same repository twice would be read twice
+		const typed = (b.githubRepos as string[]).map((r) => r.trim()).filter(Boolean);
+		const repos = typed.filter((r, i) => typed.findIndex((o) => o.toLowerCase() === r.toLowerCase()) === i);
 		const bad = repos.find((r) => !REPO.test(r));
 		if (bad) return `"${bad}" is not a repository. Write it as owner/name.`;
 		patch.githubRepos = repos;
