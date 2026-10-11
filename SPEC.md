@@ -59,14 +59,15 @@ One state per ticket, the first of these that applies:
 
 ## Linking
 
-- **S-50** assumed — A session belongs to a ticket when its name or working directory contains the issue's branch name or its identifier (`ENG-123`, any case).
+- **S-50** assumed — A session belongs to a ticket when its name, the git branch it is on, or its working directory contains the issue's branch name or its identifier (`ENG-123`, any case). The branch is read from the end of the session's transcript on every refresh, so a session does not have to be named after its ticket.
 - **S-51** assumed — A pull request belongs to a ticket when its branch or title does.
 - **S-52** assumed — Sessions that match no ticket go on an "Unsorted" line, so nothing running is hidden. Open pull requests that match no ticket go there too.
 - **S-53** assumed — Claude Code only lists sessions that still exist. wtfwid remembers every session it has seen in `~/.wtfwid/sessions.json`. A remembered session that is no longer listed keeps its place; if it was working or waiting it becomes "open".
 - **S-54** open — Planning chats on claude.ai. Nothing outside claude.ai can list them, so the link has to be written from inside the chat. Not built.
-- **S-55** open — What a session decided and what it left open (the side panel in the mockup). Needs a session-end hook that writes a summary. Not built.
+- **S-55** assumed — Opening a ticket shows, for each of its sessions: what it was started with, the last thing you asked, the last thing Claude said, and the pull requests it opened. This is read from Claude Code's own transcript of the session (`~/.claude/projects/…/<session id>.jsonl`) at the moment the ticket is opened. Nothing is written and no model is called. Reason: Claude's last message usually already says what was done and what is left. The transcript is not a documented format (checked against Claude Code 2.1.296), so a line that is not understood is skipped, and a transcript that is gone shows nothing.
 - **S-56** open — "Same files" links between tickets, from pull request file lists. Not built.
 - **S-57** open — Context pack: select a ticket and start a session with everything linked to it. Not built.
+- **S-58** open — A written "decided / still open" summary per session. Needs a session-end hook that runs a model over the transcript: tokens on every session, and a change to your Claude Code settings. Not built; S-55 gets most of it for free.
 
 ## Sources
 

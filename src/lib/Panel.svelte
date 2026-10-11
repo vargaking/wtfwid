@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { dayLabel } from './layout';
 	import Mark from './Mark.svelte';
-	import type { GraphNode, NodeState } from './model';
+	import type { GraphNode, NodeState, SessionNote } from './model';
 
 	interface Props {
 		/** the nodes of the cluster that was clicked */
@@ -22,6 +22,23 @@
 	};
 	const SESSION_LABEL = { needs: 'waiting for you', working: 'working', failed: 'failed', open: 'idle', done: 'finished' };
 
+	// S-55: what each session of the open ticket was doing, read from its transcript on demand.
+	let notes = $state<Record<string, SessionNote>>({});
+	let expanded = $state<Record<string, boolean>>({});
+	const settled = new Set<string>();
+	$effect(() => {
+		for (const s of focus?.sessions ?? []) {
+			if (settled.has(s.id)) continue;
+			if (s.gone) settled.add(s.id); // an ended session's transcript no longer changes
+			fetch(`/api/session/${encodeURIComponent(s.id)}`)
+				.then((r) => (r.ok ? r.json() : null))
+				.then((note: SessionNote | null) => {
+					if (note) notes[s.id] = note;
+				})
+				.catch(() => {});
+		}
+	});
+
 	function when(iso: string | null): string {
 		if (!iso) return '';
 		const d = new Date(iso);
@@ -32,6 +49,11 @@
 
 {#snippet heading(text: string)}
 	<h3 class="mt-5 font-mono text-xs font-medium tracking-[0.08em] text-muted uppercase">{text}</h3>
+{/snippet}
+
+{#snippet said(label: string, text: string, full: boolean)}
+	<div class="mt-2.5 font-mono text-[11px] tracking-[0.06em] text-muted uppercase">{label}</div>
+	<p class="mt-0.5 border-l-2 border-rail pl-2.5 text-[13px] leading-snug break-words whitespace-pre-line {full ? '' : 'line-clamp-5'}">{text}</p>
 {/snippet}
 
 <aside aria-label="Selected ticket" class="box-border w-full flex-none overflow-y-auto border-t border-edge px-6 pt-5 pb-7 md:w-80 md:border-t-0 md:border-l">
@@ -66,12 +88,40 @@
 			{@render heading(focus.sessions.length === 1 ? 'Session' : 'Sessions')}
 			<ul class="mt-2 space-y-3">
 				{#each focus.sessions as s (s.id)}
+					{@const note = notes[s.id]}
 					<li>
 						<div class="font-medium">{s.name ?? 'unnamed session'}</div>
 						<div class="s-{s.state}" style="color: var(--tone)">
 							{SESSION_LABEL[s.state]}{#if s.waitingFor}: {s.waitingFor}{/if}{#if s.gone}, no longer listed{/if}
 						</div>
 						<div class="font-mono text-xs break-all text-muted">{s.cwd}</div>
+						{#if s.branch}
+							<div class="font-mono text-xs break-all text-muted">on {s.branch}</div>
+						{/if}
+						{#if note}
+							{#if note.firstPrompt && note.firstPrompt !== note.lastPrompt}
+								{@render said('Started with', note.firstPrompt, false)}
+							{/if}
+							{#if note.lastPrompt}
+								{@render said('You last asked', note.lastPrompt, false)}
+							{/if}
+							{#if note.lastReply}
+								{@render said(note.at ? `Claude last said · ${when(note.at)}` : 'Claude last said', note.lastReply, expanded[s.id])}
+								{#if note.lastReply.length > 280}
+									<button type="button" class="-ml-2 min-h-9 rounded px-2 text-xs text-muted hover:text-ink" onclick={() => (expanded[s.id] = !expanded[s.id])}>
+										{expanded[s.id] ? 'show less' : 'show more'}
+									</button>
+								{/if}
+							{/if}
+							{#if note.prs.length}
+								<div class="mt-2 text-xs text-muted">
+									Opened
+									{#each note.prs as p (p.url)}
+										<a class="mr-1.5 text-ink underline-offset-2 hover:underline" href={p.url} target="_blank" rel="noreferrer">#{p.number}</a>
+									{/each}
+								</div>
+							{/if}
+						{/if}
 					</li>
 				{/each}
 			</ul>

@@ -75,8 +75,10 @@ pnpm dist        # writes an installer for your OS into dist/
 
 ## How a session ends up on the right ticket
 
-By name. A session or pull request belongs to a ticket when its name, branch or working
-directory contains the issue identifier (`ENG-123`) or Linear's branch name for the issue.
+By branch or by name. A session or pull request belongs to a ticket when its branch, name
+or working directory contains the issue identifier (`ENG-123`) or Linear's branch name for
+the issue. wtfwid reads the branch a session is on from Claude Code's transcript of it, so
+working on the ticket's branch is enough. Naming the session works too:
 
 ```sh
 claude -n "ENG-123 reconnect loop"
@@ -87,13 +89,20 @@ Anything that matches no ticket goes on an **Unsorted** line, so nothing running
 Claude Code only lists sessions that still exist. wtfwid keeps every session it has seen
 in `~/.wtfwid/sessions.json`, so they stay on the timeline after they are gone.
 
+## What a session was doing
+
+Open a ticket and each of its sessions shows what it was started with, the last thing you
+asked, the last thing Claude said and the pull requests it opened. That comes straight from
+Claude Code's transcript of the session, read when you open the ticket. Nothing is written
+and no model is called.
+
 ## What it does not do yet
 
 See [SPEC.md](SPEC.md). Every behaviour there has an ID and is marked *stated*, *assumed*
 or *open*; the tests name the statements they cover. The open ones:
 
 - planning chats on claude.ai as nodes
-- what a session decided and what it left open
+- a written "decided / still open" summary per session
 - branches that start from one specific session
 - "same files" links between tickets
 - starting a new session with everything linked to a ticket
