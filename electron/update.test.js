@@ -140,10 +140,10 @@ describe('replacing the AppImage', () => {
 		await expect(replace(app.file, { url: `${prefix}v9.9.9/short.AppImage` })).rejects.toThrow('The download has the wrong size.');
 		await expectUntouched(app);
 		// longer than promised: stopped as soon as it runs over
-		await expect(replace(app.file, { size: 5000, digest: null })).rejects.toThrow('The download has the wrong size.');
+		await expect(replace(app.file, { size: 5000 })).rejects.toThrow('The download has the wrong size.');
 		await expectUntouched(app);
 		// a file with no end is not left to fill the disk
-		await expect(replace(app.file, { url: `${prefix}v9.9.9/endless.AppImage`, size: 5000, digest: null })).rejects.toThrow('The download has the wrong size.');
+		await expect(replace(app.file, { url: `${prefix}v9.9.9/endless.AppImage`, size: 5000 })).rejects.toThrow('The download has the wrong size.');
 		await expectUntouched(app);
 		// a size that is no size
 		for (const size of [0, -1, 1.5, Number.NaN, undefined, '300000']) {
@@ -165,10 +165,14 @@ describe('replacing the AppImage', () => {
 		await expectUntouched(app);
 	});
 
-	it('S-82: with no checksum from GitHub, the size alone is checked', async () => {
+	it('S-82: with no checksum from GitHub nothing is installed, and nothing is fetched', async () => {
 		const app = await installed();
-		await replace(app.file, { digest: null });
-		expect(Buffer.compare(await readFile(app.file), NEW)).toBe(0);
+		requests = [];
+		for (const digest of [null, undefined, '']) {
+			await expect(replace(app.file, { digest })).rejects.toThrow('GitHub published no checksum for this file.');
+		}
+		expect(requests).toEqual([]);
+		await expectUntouched(app);
 		// a checksum written in capitals is the same checksum
 		const again = await installed();
 		await replace(again.file, { digest: sha256(NEW).toUpperCase().replace('SHA256', 'sha256') });

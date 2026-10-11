@@ -154,7 +154,7 @@ describe('related tickets', () => {
 });
 
 describe('the work that went into a ticket', () => {
-	it('S-88: adds up its sessions, and joins the stretches of time that overlap', () => {
+	it('S-88: adds up its sessions and keeps each one\'s stretches of time', () => {
 		const snap: Snapshot = {
 			fetchedAt: '2026-10-20T12:00:00.000Z',
 			demo: false,
@@ -168,7 +168,8 @@ describe('the work that went into a ticket', () => {
 			a: digest([], { minutes: 50, spans: [[100, 150]], costUSD: 1.25, tokens: 1000, added: 10, removed: 2 }),
 			b: digest([], { minutes: 40, spans: [[140, 160], [300, 320]], costUSD: null, tokens: 500, added: 5, removed: 1 })
 		});
-		expect(work).toEqual({ minutes: 90, sessions: 2, added: 15, removed: 3, tokens: 1500, costUSD: 1.25, spans: [[100, 160], [300, 320]] });
+		// each session's stretches are kept: two at once are two sessions' worth of work
+		expect(work).toEqual({ minutes: 90, sessions: 2, added: 15, removed: 3, tokens: 1500, costUSD: 1.25, spans: [[100, 150], [140, 160], [300, 320]] });
 		expect(workOf(node, {})).toBeUndefined();
 	});
 

@@ -1,4 +1,4 @@
-import { ROW_H, type Layout } from './layout';
+import { AXIS_H, ROW_H, type Layout } from './layout';
 
 /** One relation of the open ticket, as the timeline needs it (S-86). */
 export interface Link {
@@ -54,6 +54,11 @@ export function arcs(view: Layout, links: Link[]): Arc[] {
 			nx = -nx;
 			ny = -ny;
 		}
+		// On the top rows a bow upwards would go behind the dates, which stay on top: bow down there.
+		if ((from.y + to.y) / 2 + ny * bow < AXIS_H + 8) {
+			nx = -nx;
+			ny = -ny;
+		}
 		const cx = (from.x + to.x) / 2 + nx * bow * 2;
 		const cy = (from.y + to.y) / 2 + ny * bow * 2;
 		// leave the marks clear, along the way the line leaves and arrives
@@ -67,7 +72,8 @@ export function arcs(view: Layout, links: Link[]): Arc[] {
 			key: `${link.a}>${link.b}`,
 			d: `M${round(sx)} ${round(sy)} Q${round(cx)} ${round(cy)} ${round(ex)} ${round(ey)}`,
 			continued: link.continued,
-			width: link.continued ? 1.75 : round(1 + Math.min(1, link.weight * 0.3))
+			// one shared file is a thin line, four or more a thick one: a difference you can see
+			width: link.continued ? 2 : round(1 + Math.min(2, link.weight * 0.5))
 		});
 	}
 	return out;

@@ -184,6 +184,8 @@ export function workOf(node: GraphNode, digests: Record<string, Digest | undefin
 		removed: sum((d) => d.removed),
 		tokens: sum((d) => d.tokens),
 		costUSD: costs.length ? Math.round(costs.reduce((n, c) => n + c, 0) * 100) / 100 : null,
-		spans: mergeSpans(read.flatMap((d) => d.spans))
+		// each session's own stretches, in order. Two sessions at once overlap here: that is
+		// two sessions' worth of work, and whoever needs time of day merges them.
+		spans: read.flatMap((d) => d.spans).sort((x, y) => x[0] - y[0] || x[1] - y[1])
 	};
 }

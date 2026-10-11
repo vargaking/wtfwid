@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { buildGraph } from '../graph';
 import type { Session, SessionStory } from '../model';
 import { demoDigests, demoSnapshot } from './demo';
-import { createIndex, digestOf, mergeDigest } from './digest';
+import { createIndex, digestOf, findRoot, mergeDigest } from './digest';
 import { withDigests } from './related';
 
 const A = 'aaaaaaaa-1111-4111-8111-111111111111';
@@ -223,15 +223,55 @@ describe('the index of sessions', () => {
 		expect(await createIndex(dirs.home, { claude: dirs.claude }).digests([session(A)])).toEqual({});
 	});
 
-	it('S-86: a session that changed folder is read from the file written to last', async () => {
+	it('S-86: a session that changed folder is read from every file it has, oldest first', async () => {
 		const dirs = await folders({ [A]: ['{}'] });
 		await dirs.put(A, ['{}', '{}'], '-home-dev-other');
 		const old = new Date('2026-01-01T00:00:00Z');
 		await utimes(dirs.file(A), old, old);
 		const seen: string[] = [];
-		await createIndex(dirs.home, { claude: dirs.claude, read: async (file) => (seen.push(file), story()) }).digests([session(A)]);
-		expect(seen).toHaveLength(1);
-		expect(seen[0]).toContain('-home-dev-other');
+		const read = async (file: string) => (seen.push(file), story({ files: [{ path: `from-${seen.length}.ts`, edits: 1, created: false }] }));
+		const out = await createIndex(dirs.home, { claude: dirs.claude, read }).digests([session(A)]);
+		expect(seen).toHaveLength(2);
+		expect(seen[0]).toContain('-home-dev-app');
+		expect(seen[1]).toContain('-home-dev-other');
+		// what each file held is in the one digest
+		expect(out[A].files.map((f) => f.path)).toEqual(['from-1.ts', 'from-2.ts']);
+	});
+
+	it('S-86: two windows asking at the same moment read each transcript once, and both get an answer', async () => {
+		const ids = Array.from({ length: 40 }, (_, i) => `${String(i).padStart(8, '0')}-1111-4111-8111-111111111111`);
+		const dirs = await folders(Object.fromEntries(ids.map((id) => [id, ['{}']])));
+		let reads = 0;
+		const read = async () => (reads++, await new Promise((r) => setTimeout(r, 1)), story());
+		const index = createIndex(dirs.home, { claude: dirs.claude, read, budgetMs: 60_000 });
+		const sessions = ids.map((id) => session(id));
+		let told = 0;
+		const [one, two] = await Promise.all([index.digests(sessions, () => told++), index.digests(sessions, () => told++)]);
+		await index.settled();
+		expect(reads).toBe(40);
+		expect(Object.keys(one)).toHaveLength(40);
+		// the second was answered with what was known at that moment, and reads nothing itself
+		expect(Object.keys(two).length).toBeLessThanOrEqual(40);
+		expect(Object.keys(await index.digests(sessions))).toHaveLength(40);
+		expect(reads).toBe(40);
+		expect(JSON.parse(await readFile(join(dirs.home, 'index.json'), 'utf8')).version).toBe(2);
+	});
+
+	it('S-86: paths are kept from the checkout that holds the session\'s folder', async () => {
+		const repo = await mkdtemp(join(tmpdir(), 'wtfwid-repo-'));
+		await mkdir(join(repo, '.git'));
+		await mkdir(join(repo, 'packages', 'web'), { recursive: true });
+		expect(await findRoot(join(repo, 'packages', 'web'))).toBe(repo);
+		// a worktree that is gone from disk still belongs to its checkout
+		expect(await findRoot(join(repo, '.claude', 'worktrees', 'eng-1', 'packages', 'web'))).toBe(repo);
+		expect(await findRoot('/nowhere/at/all')).toBe('/nowhere/at/all');
+
+		// a session started inside packages/web and one started at the top name the same file the same way
+		const inside = digestOf(story({ files: [{ path: 'src/a.ts', edits: 1, created: false }, { path: '/tmp/plan.md', edits: 1, created: true }] }), join(repo, 'packages', 'web'), 's', 0, repo);
+		const top = digestOf(story({ files: [{ path: 'packages/web/src/a.ts', edits: 1, created: false }] }), join(repo, '.claude/worktrees/x'), 's', 0, repo);
+		expect(inside.files).toEqual([{ path: 'packages/web/src/a.ts', edits: 1 }, { path: '/tmp/plan.md', edits: 1 }]);
+		expect(top.files).toEqual([{ path: 'packages/web/src/a.ts', edits: 1 }]);
+		expect(inside.root).toBe(repo);
 	});
 });
 

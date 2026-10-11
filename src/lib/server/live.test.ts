@@ -157,3 +157,44 @@ describe('following running sessions', () => {
 		stop();
 	});
 });
+
+describe('what the follower does not miss', () => {
+	it('S-85 passes on what a session\'s sub-agents do, while its own transcript is silent', async () => {
+		const { root, file } = await claudeDir([prompt('build it'), reply([use('Agent', { description: 'Build the strip' })])]);
+		const events: LiveEvent[] = [];
+		const hub = createHub({ list: async () => [session()], claude: root });
+		const stop = await hub.subscribe((e) => events.push(e));
+
+		// a sub-agent starts after the window connected, in the file Claude Code gives it
+		const dir = join(file.replace(/\.jsonl$/, ''), 'subagents');
+		await mkdir(dir, { recursive: true });
+		const side = { isSidechain: true };
+		await writeFile(join(dir, 'agent-a1.jsonl'), [prompt('You are building…', side), reply([{ type: 'text', text: 'Reading the brief.' }, use('Bash', { command: 'pnpm test', description: 'Run the tests' })], '2026-10-10T09:05:00.000Z', side)].map((l) => l + '\n').join(''));
+		await hub.tail();
+		await appendFile(join(dir, 'agent-a1.jsonl'), reply([use('Edit', { file_path: `${CWD}/src/strip.ts` })], '2026-10-10T09:06:00.000Z', side) + '\n');
+		await hub.tail();
+		stop();
+
+		const actions = events.flatMap((e) => (e.type === 'actions' ? e.actions : []));
+		// what it did, not what it was told and not what it said to the session
+		expect(actions.map((a) => a.text)).toEqual(['Run the tests', 'Editing src/strip.ts']);
+	});
+
+	it('S-85 a window that connects while the first is still being answered gets the same greeting', async () => {
+		const { root } = await claudeDir([reply([use('Bash', { command: 'ls', description: 'List files' })])]);
+		let release = () => {};
+		const slow = new Promise<void>((resolve) => (release = resolve));
+		const hub = createHub({ list: async () => (await slow, [session()]), claude: root });
+		const first: LiveEvent[] = [];
+		const second: LiveEvent[] = [];
+		const one = hub.subscribe((e) => first.push(e));
+		const two = hub.subscribe((e) => second.push(e));
+		release();
+		const stops = await Promise.all([one, two]);
+		expect(first[0]).toMatchObject({ type: 'hello' });
+		expect(second[0]).toEqual(first[0]);
+		expect(Object.keys((second[0] as { sessions: object }).sessions)).toEqual([ID]);
+		for (const stop of stops) stop();
+		expect(hub.following).toEqual([]);
+	});
+});

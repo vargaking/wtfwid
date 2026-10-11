@@ -33,6 +33,9 @@
 
 	/** The end of a path: the file and the folder it is in, which is usually enough to know it. */
 	const shortPath = (path: string) => path.split(/[\\/]/).slice(-2).join('/');
+	/** How many tickets of a day are listed before "show all". */
+	const DAY_LISTED = 12;
+	let allOfDay = $state(false);
 	/** A day by its date; anything longer by the date it starts on. */
 	const dayTitle = (d: Day) => (d.to - d.from < DAY * 1.5 ? dayLabel(d.from) : `Week of ${dayLabel(d.from)}`);
 
@@ -166,7 +169,8 @@
 	<p class="mt-0.5 border-l-2 border-rail pl-2.5 text-[13px] leading-snug break-words whitespace-pre-line {full ? '' : 'line-clamp-5'}">{text}</p>
 {/snippet}
 
-<aside id="ticket-panel" tabindex="-1" aria-label="Selected ticket" class="outline-none box-border w-full flex-none overflow-y-auto border-t border-edge px-6 pt-5 pb-7 md:w-80 md:border-t-0 md:border-l">
+<!-- focus is put here when a ticket or a day is opened; it is a place to read on from, not a control, so it draws no ring -->
+<aside id="ticket-panel" tabindex="-1" aria-label="Selected ticket" style="outline: none" class="box-border w-full flex-none overflow-y-auto border-t border-edge px-6 pt-5 pb-7 md:w-80 md:border-t-0 md:border-l">
 	{#if focus}
 		{#if nodes.length > 1}
 			<button type="button" class="mb-3 -ml-2 min-h-11 rounded px-2 text-muted hover:text-ink" onclick={() => onfocus(null)}>
@@ -224,7 +228,7 @@
 						<button type="button" class="flex min-h-11 w-full items-start gap-3 rounded px-2 py-1.5 text-left hover:bg-edge" onclick={() => onshow(r.node)}>
 							<span class="mt-1"><Mark state={r.node.state} stage={r.node.stage} small /></span>
 							<span class="min-w-0 flex-1">
-								<span class="block truncate leading-snug">
+								<span class="block truncate leading-snug" title={r.node.title}>
 									{#if r.node.status !== null}<span class="font-mono text-xs text-muted">{r.node.label}</span>{/if}
 									{r.node.title}
 								</span>
@@ -274,7 +278,8 @@
 							<p class="mt-0.5 text-[13px] leading-snug">
 								{[
 									story.activeMinutes ? `${duration(story.activeMinutes)} at it` : '',
-									count(story.promptCount, 'prompt'),
+									// the prompts can be gone from a transcript that was compacted: say nothing rather than "0"
+									story.promptCount ? count(story.promptCount, 'prompt') : '',
 									count(story.commands, 'command'),
 									story.files.length ? count(story.files.length, 'file') : ''
 								]
@@ -440,23 +445,28 @@
 					.filter(Boolean)
 					.join(' · ')}
 			</p>
+		{:else if began || ended}
+			<!-- no session was read for that day: what Linear says happened is the answer then -->
+			<h2 class="mt-2 text-xl leading-snug font-semibold">{[began ? `${began} started` : '', ended ? `${ended} completed` : ''].filter(Boolean).join(' · ')}</h2>
+			<p class="mt-1 text-[13px] text-muted">No session that wtfwid has read was at work then.</p>
 		{:else}
 			<h2 class="mt-2 text-xl leading-snug font-semibold">{day.items.length ? 'No session time' : 'Nothing happened'}</h2>
-			<p class="mt-1 text-[13px] text-muted">No session that wtfwid has read was at work then.</p>
 		{/if}
-		{#if began || ended}
+		{#if day.minutes && (began || ended)}
 			<p class="mt-1 text-[13px] text-muted">{[began ? `${began} started` : '', ended ? `${ended} completed` : ''].filter(Boolean).join(' · ')}</p>
 		{/if}
 		<ul class="mt-3 -ml-2">
-			{#each day.items as item (item.node.id)}
+			{#each allOfDay ? day.items : day.items.slice(0, DAY_LISTED) as item (item.node.id)}
 				{@const n = item.node}
 				<li>
 					<button type="button" class="s-{n.state} flex min-h-11 w-full items-start gap-3 rounded px-2 py-2 text-left hover:bg-edge" onclick={() => onshow(n)}>
 						<span class="mt-1"><Mark state={n.state} stage={n.stage} small /></span>
 						<span class="min-w-0 flex-1">
 							<span class="flex items-baseline justify-between gap-3 font-mono text-xs">
-								<span class="text-muted">
-									{n.status === null ? 'Session' : n.label}{#if item.started && n.status !== null}&nbsp;· started{/if}{#if item.completed}&nbsp;· completed{/if}
+								<span class="flex flex-wrap gap-x-2 text-muted">
+									<span>{n.status === null ? (n.stage === 'pr' ? 'Pull request' : 'Session') : n.label}</span>
+									{#if item.started}<span>started</span>{/if}
+									{#if item.completed}<span>completed</span>{/if}
 								</span>
 								<span class="flex-none">{item.minutes ? duration(item.minutes) : ''}</span>
 							</span>
@@ -470,6 +480,11 @@
 				</li>
 			{/each}
 		</ul>
+		{#if day.items.length > DAY_LISTED}
+			<button type="button" class="-ml-2 min-h-9 rounded px-2 text-xs text-muted hover:text-ink" onclick={() => (allOfDay = !allOfDay)}>
+				{allOfDay ? 'show fewer' : `show all ${day.items.length}`}
+			</button>
+		{/if}
 	{:else if unfinished.length}
 		<!-- S-19: nothing selected, so answer the question the app is named after -->
 		<h2 class="text-xl font-semibold">Unfinished <span class="font-normal text-muted">{unfinished.length}</span></h2>

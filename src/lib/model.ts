@@ -169,7 +169,7 @@ export interface Work {
 	removed: number;
 	tokens: number;
 	costUSD: number | null;
-	/** When, as [from, to] in whole minutes since 1970, in order, none overlapping. */
+	/** When, as [from, to] in whole minutes since 1970, in order. Sessions that ran side by side overlap. */
 	spans: [number, number][];
 }
 

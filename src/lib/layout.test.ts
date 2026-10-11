@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AXIS_H, DAY, FOLD_H, FOLD_LINE_Y, LANE_H, LINE_Y, MAX_ROWS, ROW_H, layout, nextInState, restoreView, unfinished, xOf } from './layout';
-import type { Graph, GraphNode, Lane, NodeState } from './model';
+import { buildGraph } from './graph';
+import type { Graph, GraphNode, Lane, NodeState, Snapshot } from './model';
 
 const NOW = Date.parse('2026-10-10T12:00:00.000Z');
 
@@ -375,5 +376,45 @@ describe('the view as it was left', () => {
 		expect(restoreView(JSON.stringify({ pxPerDay: 99999 })).pxPerDay).toBe(160);
 		expect(restoreView(JSON.stringify({ pxPerDay: '300', hideFinished: 'yes', unfolded: 'm:voice' }))).toEqual(first);
 		expect(restoreView(JSON.stringify({ unfolded: ['m:voice', 7, null] })).unfolded).toEqual(['m:voice']);
+	});
+});
+
+describe('the axis, zoomed in and out', () => {
+	const snap: Snapshot = {
+		fetchedAt: '2026-10-10T12:00:00.000Z',
+		demo: false,
+		warnings: [],
+		issues: [
+			{ id: 'ENG-1', title: 'One', url: '', createdAt: '2026-10-08T09:00:00.000Z', startedAt: '2026-10-08T09:00:00.000Z', completedAt: '2026-10-08T12:00:00.000Z', canceledAt: null, stateName: 'Done', stateType: 'completed', branchName: 'eng-1', project: { id: 'old', name: 'Old' }, milestone: null },
+			{ id: 'ENG-2', title: 'Two', url: '', createdAt: '2026-10-09T09:00:00.000Z', startedAt: '2026-10-09T09:00:00.000Z', completedAt: null, canceledAt: null, stateName: 'In Progress', stateType: 'started', branchName: 'eng-2', project: { id: 'web', name: 'Web' }, milestone: null }
+		],
+		prs: [],
+		sessions: []
+	};
+	const graph = buildGraph(snap);
+	const NOW = Date.parse(snap.fetchedAt);
+
+	it('S-14: zoomed far in, the axis has hours; never a line past the timeline\'s own width', () => {
+		const days = layout(graph, NOW, 160);
+		expect(days.ticks.some((t) => t.hour)).toBe(false);
+		const six = layout(graph, NOW, 480);
+		expect(six.ticks.filter((t) => t.hour && t.label).map((t) => t.label).slice(0, 3)).toEqual(['06:00', '12:00', '18:00']);
+		const hourly = layout(graph, NOW, 1600);
+		expect(hourly.ticks.filter((t) => t.hour).length).toBeGreaterThan(48);
+		// an hour is where its time is
+		const noon = hourly.ticks.find((t) => t.hour && new Date(t.t).getUTCHours() === 12)!;
+		expect(noon.x).toBe(Math.round(xOf(noon.t, hourly.t0, 1600)));
+		for (const v of [days, six, hourly]) expect(Math.max(...v.ticks.map((t) => t.x))).toBeLessThanOrEqual(v.width);
+		// hours are not days: a click on one is not "what happened that day"
+		expect(hourly.ticks.filter((t) => !t.hour).every((t) => new Date(t.t).getUTCHours() === 0)).toBe(true);
+	});
+
+	it('S-17: the line of the open ticket is shown in full while it is open, hidden and folded or not', () => {
+		const finished = graph.lanes.find((l) => l.closed)!.id;
+		expect(layout(graph, NOW, 160, true).lanes.map((b) => b.lane.id)).not.toContain(finished);
+		const peeking = layout(graph, NOW, 160, true, undefined, new Set(), finished);
+		expect(peeking.lanes.find((b) => b.lane.id === finished)).toMatchObject({ folded: false });
+		expect(layout(graph, NOW, 160, false, undefined, new Set(), finished).lanes.find((b) => b.lane.id === finished)!.folded).toBe(false);
+		expect(layout(graph, NOW, 160, false).lanes.find((b) => b.lane.id === finished)!.folded).toBe(true);
 	});
 });

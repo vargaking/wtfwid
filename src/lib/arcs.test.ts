@@ -27,7 +27,7 @@ const points = (d: string) => d.match(/-?[\d.]+/g)!.map(Number);
 
 describe('lines between related tickets', () => {
 	it('S-86: a line runs between the two marks and stops short of both', () => {
-		const v = view([issue(1, '2026-10-10T09:00:00.000Z'), issue(2, '2026-10-14T09:00:00.000Z')]);
+		const v = view([issue(1, '2026-10-10T09:00:00.000Z'), issue(2, '2026-10-11T09:00:00.000Z')]);
 		const [a, b] = v.lanes[0].clusters;
 		const [arc] = arcs(v, [{ a: 'ENG-1', b: 'ENG-2', continued: true, weight: 0 }]);
 		const [sx, sy, cx, cy, ex, ey] = points(arc.d);
@@ -50,6 +50,14 @@ describe('lines between related tickets', () => {
 		expect(arc.continued).toBe(false);
 	});
 
+	it('S-86: on the top line it bows downwards, so it does not go behind the dates', () => {
+		// far apart on the first row of the first line: a bow upwards would rise above the axis
+		const v = view([issue(1, '2026-10-02T09:00:00.000Z'), issue(2, '2026-10-18T09:00:00.000Z')]);
+		const y = v.lanes[0].y + v.lanes[0].lineY;
+		const [arc] = arcs(v, [{ a: 'ENG-1', b: 'ENG-2', continued: false, weight: 1 }]);
+		expect(points(arc.d)[3]).toBeGreaterThan(y);
+	});
+
 	it('S-86: a ticket that is not on the timeline, or in the same cluster, gets no line', () => {
 		const v = view([issue(1, '2026-10-10T09:00:00.000Z'), issue(2, '2026-10-14T09:00:00.000Z')]);
 		expect(arcs(v, [{ a: 'ENG-1', b: 'ENG-9', continued: false, weight: 1 }])).toEqual([]);
@@ -61,6 +69,7 @@ describe('lines between related tickets', () => {
 		const v = view([issue(1, '2026-10-10T09:00:00.000Z'), issue(2, '2026-10-14T09:00:00.000Z')]);
 		const width = (weight: number) => arcs(v, [{ a: 'ENG-1', b: 'ENG-2', continued: false, weight }])[0].width;
 		expect(width(0.5)).toBeLessThan(width(2));
-		expect(width(50)).toBe(2);
+		expect(width(1)).toBe(1.5);
+		expect(width(50)).toBe(3);
 	});
 });

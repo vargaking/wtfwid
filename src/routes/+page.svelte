@@ -46,7 +46,9 @@
 			// no storage: the view lasts until the window closes
 		}
 	});
-	const view = $derived(layout(graph, now, pxPerDay, hideFinished, undefined, new Set(unfolded)));
+	/** S-17: the finished line a ticket was opened on from a list, shown in full while that ticket is open. */
+	let peek = $state<string | null>(null);
+	const view = $derived(layout(graph, now, pxPerDay, hideFinished, undefined, new Set(unfolded), peek));
 	const fold = (id: string) => (unfolded = unfolded.includes(id) ? unfolded.filter((x) => x !== id) : [...unfolded, id]);
 	const byId = $derived(new Map(graph.lanes.flatMap((l) => l.nodes).map((n) => [n.id, n])));
 	const pickedNodes = $derived(picked.map((id) => byId.get(id)).filter((n): n is GraphNode => !!n));
@@ -64,9 +66,16 @@
 	const updated = $derived(new Date(now).toTimeString().slice(0, 5));
 	const left = $derived(unfinished(graph));
 
-	function pick(cluster: Cluster) {
+	const toPanel = () => document.getElementById('ticket-panel')?.focus({ preventScroll: true });
+
+	async function pick(cluster: Cluster) {
 		picked = cluster.nodes.map((n) => n.id);
 		focusId = null;
+		// a line that was opened for another ticket goes back to how it was
+		if (!cluster.nodes.some((n) => laneOf.get(n.id)?.id === peek)) peek = null;
+		await tick();
+		// the keyboard goes where the ticket is shown, not on through the rest of the timeline
+		toPanel();
 	}
 
 	/** Lets go of the open ticket; with none open, of the day (S-89). */
@@ -74,6 +83,7 @@
 		if (!picked.length) dayPick = null;
 		picked = [];
 		focusId = null;
+		peek = null;
 	}
 
 	// S-89: a date on the axis was clicked. The side panel says what happened then.
@@ -81,11 +91,14 @@
 	const day = $derived(dayPick ? dayOf(graph.lanes, dayPick.from, dayPick.to) : null);
 	const today = $derived(dayOf(graph.lanes, startOfDay(now)));
 	/** `days` is how many days the stretch covers; the same date again lets go of it. */
-	function pickDay(from: number | null, days = 1) {
+	async function pickDay(from: number | null, days = 1) {
 		picked = [];
 		focusId = null;
+		peek = null;
 		// half a day past the last one, then back to midnight: right on days the clock changes too
 		dayPick = from === null || dayPick?.from === from ? null : { from, to: startOfDay(from + days * DAY + DAY / 2) };
+		await tick();
+		if (dayPick) toPanel();
 	}
 
 	const JUMPS = [
@@ -99,18 +112,19 @@
 
 	let timeline = $state<LaneView>();
 
-	/** Shows a ticket: unfolds or unhides its line if need be, selects it and scrolls to it. */
+	/**
+	 * Shows a ticket: selects it and scrolls to it. If its line is finished and hidden or
+	 * folded, the line is shown in full for as long as the ticket is open; what you chose to
+	 * hide or fold is not changed by looking something up.
+	 */
 	async function show(node: GraphNode, lane: Lane | undefined) {
-		if (lane?.closed) {
-			hideFinished = false;
-			if (!unfolded.includes(lane.id)) unfolded = [...unfolded, lane.id];
-		}
+		peek = lane?.closed ? lane.id : null;
 		picked = [node.id];
 		focusId = null;
 		await tick();
 		timeline?.reveal(node.id);
 		// hand the keyboard to the ticket that was just opened, not back to the top of the page
-		document.getElementById('ticket-panel')?.focus({ preventScroll: true });
+		toPanel();
 	}
 
 	/** S-15: go to the next ticket in this state, after the one that is open, and open it. */

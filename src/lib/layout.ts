@@ -81,8 +81,10 @@ export interface Connector {
 export interface Tick {
 	x: number;
 	label: string | null;
-	/** The start of the day the tick marks. */
+	/** The time the tick marks: the start of a day, or an hour of one. */
 	t: number;
+	/** An hour within a day, drawn when the axis is zoomed far enough in. Not a day to click. */
+	hour?: boolean;
 }
 
 export interface Layout {
@@ -280,7 +282,9 @@ export function layout(
 	pxPerDay: number,
 	hideFinished = false,
 	maxRows = MAX_ROWS,
-	unfolded: ReadonlySet<string> = new Set()
+	unfolded: ReadonlySet<string> = new Set(),
+	/** A finished lane to show in full whatever is hidden or folded: the one the open ticket is on (S-17). */
+	peek: string | null = null
 ): Layout {
 	const all = graph.lanes.flatMap((l) => l.nodes);
 	const first = all.length ? Math.min(...all.map((n) => Date.parse(n.at))) : now - 7 * DAY;
@@ -288,11 +292,11 @@ export function layout(
 	const x = (iso: string) => xOf(Date.parse(iso), t0, pxPerDay);
 	const nowX = Math.round(xOf(now, t0, pxPerDay));
 
-	const visible = graph.lanes.filter((l) => !(hideFinished && l.closed)); // S-13
+	const visible = graph.lanes.filter((l) => !(hideFinished && l.closed) || l.id === peek); // S-13
 	const boxes = new Map<string, LaneBox>();
 	let y = AXIS_H;
 	const lanes = visible.map((lane) => {
-		const folded = lane.closed && !unfolded.has(lane.id);
+		const folded = lane.closed && !unfolded.has(lane.id) && lane.id !== peek;
 		const cs = place(lane, x, maxRows, folded);
 		const xs = lane.nodes.map((n) => x(n.at));
 		const rows = Math.max(1, ...cs.map((c) => c.row + 1));
@@ -330,9 +334,14 @@ export function layout(
 	// Days after today get a line but no label, which leaves room for the "now" label.
 	const ticks: Tick[] = [];
 	const everyDay = pxPerDay >= 90;
+	const width = nowX + 260;
+	// Zoomed far in, a day is wider than the window: hours say where in the day you are.
+	const hourStep = pxPerDay >= 1400 ? 1 : pxPerDay >= 700 ? 3 : pxPerDay >= 420 ? 6 : 0;
 	let nowLabel = 'now';
 	for (let t = t0; t <= now + 2 * DAY; t = startOfDay(t + DAY + DAY / 2)) {
 		const tx = Math.round(xOf(t, t0, pxPerDay));
+		// nothing is drawn past the timeline's own width: it would add empty room to scroll into
+		if (tx > width) break;
 		let labelled = t <= now && (everyDay || new Date(t).getDay() === 1);
 		if (labelled && nowX - tx < LABEL_W) {
 			// just after midnight the date and "now" would overlap, so "now" carries the date
@@ -340,12 +349,21 @@ export function layout(
 			nowLabel = `${dayLabel(t)} · now`;
 		}
 		ticks.push({ x: tx, label: labelled ? dayLabel(t) : null, t });
+		for (let h = hourStep; hourStep && h < 24; h += hourStep) {
+			// by the clock, so it is right on the days the clock changes
+			const th = new Date(t).setHours(h, 0, 0, 0);
+			const hx = Math.round(xOf(th, t0, pxPerDay));
+			if (hx > width) break;
+			// an hour gets its label where neither the date before it nor "now" is in the way
+			const room = th <= now && Math.abs(nowX - hx) >= 56 && hx - tx >= LABEL_W + 8;
+			ticks.push({ x: hx, label: room ? `${String(h).padStart(2, '0')}:00` : null, t: th, hour: true });
+		}
 	}
 
 	const count = (s: NodeState) => visible.reduce((sum, l) => sum + l.nodes.filter((n) => inState(n, s)).length, 0);
 
 	return {
-		width: nowX + 260,
+		width,
 		height: y + 32,
 		nowX,
 		now,

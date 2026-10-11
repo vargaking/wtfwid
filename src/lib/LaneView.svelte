@@ -30,6 +30,7 @@
 	const linked = $derived(new Set(links.flatMap((l) => [l.a, l.b])));
 	const isLinked = (c: Cluster) => c.nodes.some((n) => linked.has(n.id));
 	const MINUTE = 60_000;
+	const clock = (minutes: number) => new Date(minutes * MINUTE).toTimeString().slice(0, 5);
 
 
 	let viewport: HTMLElement;
@@ -38,7 +39,15 @@
 	/** Zooms the time axis, keeping the time under `clientX` (or the middle) where it is. */
 	async function zoom(factor: number, clientX?: number) {
 		const rect = viewport.getBoundingClientRect();
-		const offset = clientX === undefined ? rect.width / 2 : clientX - rect.left;
+		// With the buttons, zoom around the open ticket if it is in view, so it stays there;
+		// otherwise around the middle. With the wheel, around the pointer.
+		let offset = rect.width / 2;
+		if (clientX !== undefined) offset = clientX - rect.left;
+		else {
+			const open = view.lanes.flatMap((box) => box.clusters).find(isPicked);
+			const at = open ? open.markX - viewport.scrollLeft : -1;
+			if (at >= 0 && at <= rect.width) offset = at;
+		}
 		const t = tOf(viewport.scrollLeft + offset, view.t0, pxPerDay);
 		const next = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pxPerDay * factor));
 		pxPerDay = next;
@@ -94,11 +103,21 @@
 	}
 
 	const isPicked = (c: Cluster) => c.nodes.some((n) => picked.includes(n.id));
+
+	/** Left and right arrow on a date go to the date before and after it (S-89). */
+	function stepDay(e: KeyboardEvent) {
+		if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+		const dates = [...viewport.querySelectorAll<HTMLElement>('[data-day]')];
+		const next = dates[dates.indexOf(e.currentTarget as HTMLElement) + (e.key === 'ArrowLeft' ? -1 : 1)];
+		if (!next) return;
+		e.preventDefault();
+		next.focus();
+	}
 </script>
 
 <!-- S-80: the timeline, and under it the strip that shows all of time. The inner block is the timeline as it was. -->
 <div class="flex min-w-0 flex-1 flex-col">
-<div class="relative min-h-80 min-w-0 flex-1">
+<div class="@container relative min-h-80 min-w-0 flex-1">
 	<section
 		bind:this={viewport}
 		aria-label="Timeline. Drag or scroll to pan; ctrl or cmd plus wheel to zoom."
@@ -130,36 +149,68 @@
 				></div>
 			{/each}
 
+			{#if arcs.length}
+				<!-- S-86: lines from the open ticket to what it is related to. Under the names and the
+				     line titles, which have a background of their own: a line never strikes through text. -->
+				<svg aria-hidden="true" class="pointer-events-none absolute top-0 left-0 overflow-visible" width={view.width} height={view.height}>
+					<defs>
+						<marker id="arc-head" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+							<path d="M0 0.5 L7.5 4 L0 7.5 z" fill="var(--color-ink)" />
+						</marker>
+					</defs>
+					{#each arcs as arc (arc.key)}
+						<path
+							d={arc.d}
+							fill="none"
+							stroke="var(--color-ink)"
+							stroke-width={arc.width}
+							stroke-opacity={arc.continued ? 0.9 : 0.55}
+							stroke-dasharray={arc.continued ? undefined : '2 5'}
+							stroke-linecap="round"
+							marker-end={arc.continued ? 'url(#arc-head)' : undefined}
+						/>
+					{/each}
+				</svg>
+			{/if}
+
 			<div class="sticky top-0 z-30 box-border h-10 border-b border-edge bg-ground font-mono text-xs text-muted">
 				{#each view.ticks as t (t.x)}
-					{#if t.label}
-						<!-- S-89: a date is a button: what happened that day (that week, when dates are a week apart) -->
+					{#if t.label && t.hour}
+						<span class="absolute top-3 whitespace-nowrap opacity-70" style="left: {t.x + 6}px">{t.label}</span>
+					{:else if t.label}
+						<!-- S-89: a date is a button: what happened that day (that week, when dates are a week apart).
+						     Tab stops at "now" only; from there the arrow keys go through the dates. -->
 						<button
 							type="button"
+							tabindex="-1"
+							data-day
 							aria-pressed={day?.from === t.t}
 							title={view.tickDays === 1 ? 'What happened that day' : 'What happened that week'}
 							class="absolute top-1 h-8 rounded px-1.5 whitespace-nowrap hover:bg-edge hover:text-ink {day?.from === t.t ? 'bg-edge text-ink' : ''}"
 							style="left: {t.x}px"
+							onkeydown={stepDay}
 							onclick={() => ondaypick?.(t.t)}>{t.label}</button
 						>
 					{/if}
 				{/each}
 				<button
 					type="button"
+					data-day
 					aria-pressed={day?.from === startOfDay(view.now)}
-					title="What happened today"
+					onkeydown={stepDay}
+					title="What happened today. Arrow keys go to other days."
 					class="absolute top-1 h-8 rounded px-1.5 whitespace-nowrap text-ink hover:bg-edge {day?.from === startOfDay(view.now) ? 'bg-edge' : ''}"
 					style="left: {view.nowX}px"
 					onclick={() => ondaypick?.(startOfDay(view.now))}>{view.nowLabel}</button
 				>
 				{#if worked}
 					<!-- S-88: when the open ticket was worked on, along the bottom of the axis -->
-					{#each worked.spans as [from, to] (from)}
+					{#each worked.spans as [from, to], i (i)}
 						{@const left = xOf(from * MINUTE, view.t0, pxPerDay)}
 						<span
-							aria-hidden="true"
-							class="s-{worked.state} absolute -bottom-px h-[3px] rounded-sm"
-							style="left: {left}px; width: {Math.max(2, xOf(to * MINUTE, view.t0, pxPerDay) - left)}px; background: var(--tone)"
+							title="Worked on {clock(from)} to {clock(to)}"
+							class="s-{worked.state} absolute bottom-0 h-1 rounded-sm"
+							style="left: {left}px; width: {Math.max(3, xOf(to * MINUTE, view.t0, pxPerDay) - left)}px; background: var(--tone)"
 						></span>
 					{/each}
 				{/if}
@@ -204,7 +255,7 @@
 							aria-label={c.title}
 							title={c.title}
 							class="absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center transition-opacity {box.folded ? 'h-4 min-w-3.5' : 'h-6 min-w-6'}"
-							class:opacity-50={arcs.length > 0 && !isLinked(c) && !isPicked(c)}
+							class:opacity-50={arcs.length > 0 && c.quiet && !isLinked(c) && !isPicked(c)}
 							style="left: {c.markX}px; top: {cy}px"
 							onclick={() => onpick(c)}
 						>
@@ -223,7 +274,7 @@
 							<div
 								aria-hidden="true"
 								class="s-{c.state} pointer-events-none absolute -translate-y-1/2 bg-ground pr-1 font-mono text-[11px] leading-4 whitespace-nowrap transition-opacity"
-								class:opacity-50={arcs.length > 0 && !isLinked(c) && !isPicked(c)}
+								class:opacity-50={arcs.length > 0 && c.quiet && !isLinked(c) && !isPicked(c)}
 								style="left: {c.labelX}px; top: {cy}px; color: {c.quiet ? 'color-mix(in srgb, var(--color-muted) 70%, var(--color-ground))' : 'var(--tone)'}"
 							>
 								{c.label}
@@ -232,34 +283,12 @@
 					{/each}
 				</div>
 			{/each}
-
-			{#if arcs.length}
-				<!-- S-86: lines from the open ticket to what it is related to, over everything else -->
-				<svg aria-hidden="true" class="pointer-events-none absolute top-0 left-0 z-20 overflow-visible" width={view.width} height={view.height}>
-					<defs>
-						<marker id="arc-head" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-							<path d="M0 0.5 L7.5 4 L0 7.5 z" fill="var(--color-ink)" />
-						</marker>
-					</defs>
-					{#each arcs as arc (arc.key)}
-						<path
-							d={arc.d}
-							fill="none"
-							stroke="var(--color-ink)"
-							stroke-width={arc.width}
-							stroke-opacity={arc.continued ? 0.9 : 0.55}
-							stroke-dasharray={arc.continued ? undefined : '2 5'}
-							stroke-linecap="round"
-							marker-end={arc.continued ? 'url(#arc-head)' : undefined}
-						/>
-					{/each}
-				</svg>
-			{/if}
 		</div>
 	</section>
 
 	<!-- what the three shapes mean; it sits on the timeline so the header has room -->
-	<div class="pointer-events-none absolute bottom-4 left-4 z-40 hidden items-center gap-4 rounded-md border border-edge bg-ground px-3 py-2 text-xs text-muted sm:flex">
+	<!-- only where the pane is wide enough to hold it next to the buttons without covering much -->
+	<div class="pointer-events-none absolute bottom-4 left-4 z-40 hidden items-center gap-4 rounded-md border border-edge bg-ground px-3 py-2 text-xs text-muted @4xl:flex">
 		<span class="inline-flex items-center gap-2"><Mark state="done" stage="ticket" small />ticket</span>
 		<span class="inline-flex items-center gap-2"><Mark state="done" stage="session" small />has a session</span>
 		<span class="inline-flex items-center gap-2"><Mark state="done" stage="pr" small />has a pull request</span>

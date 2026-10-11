@@ -25,6 +25,13 @@ async function claudeDir(files: Record<string, string[]>) {
 }
 
 describe('past sessions on disk', () => {
+	it('S-83 finds a session whose first line is longer than the piece first read, and survives a line that is no entry', async () => {
+		const root = await claudeDir({
+			[`-home-dev-app/${A}.jsonl`]: ['null', line('user', 'p'.repeat(45_000), '2026-10-01T09:00:00.000Z'), line('assistant', 'ok', '2026-10-01T09:01:00.000Z')]
+		});
+		expect(await discoverSessions(root)).toMatchObject([{ id: A, cwd: '/home/dev/app', startedAt: '2026-10-01T09:00:00.000Z' }]);
+	});
+
 	it('S-83 reads a session from its transcript: where, when, its name and its branch', async () => {
 		const root = await claudeDir({
 			[`-home-dev-app/${A}.jsonl`]: [

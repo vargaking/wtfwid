@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { describeAction, relative, storyFrom } from './story';
+import { actionsFrom, describeAction, minutesOf, relative, storyFrom, storyReader, withAgents } from './story';
 
 const CWD = '/home/dev/app';
 const base = { isSidechain: false, cwd: CWD, sessionId: 's', version: '2.1.296' };
@@ -101,5 +101,72 @@ describe('what a session did', () => {
 
 	it('S-84 makes nothing up from an empty or foreign file', () => {
 		expect(storyFrom(['', 'not json', '{"type":"mode"}'], CWD)).toMatchObject({ startedAt: null, activeMinutes: 0, prompts: [], files: [], toolCalls: 0, tokens: { input: 0, output: 0, cached: 0 }, costUSD: null });
+	});
+});
+
+describe('what the reader does not miss', () => {
+	it('S-84 counts the wait for a long command or a sub-agent as work, up to an hour', () => {
+		const lines = [
+			prompt('run the whole suite', 0),
+			reply('a1', [use('Bash', { command: 'pnpm test:all' })], 1),
+			// the command came back 25 minutes later: the session was at work, not idle
+			result(26),
+			reply('a2', [{ type: 'text', text: 'All green.' }], 27),
+			// and then you were away for half an hour before typing again
+			prompt('ship it', 57)
+		];
+		const story = storyFrom(lines, CWD);
+		expect(story.activeMinutes).toBe(27);
+		expect(story.spans).toHaveLength(2);
+		// a tool that waited for your permission overnight is not a night of work
+		const night = [prompt('go', 0), reply('b1', [use('Bash', { command: 'rm x' })], 1), JSON.stringify({ ...JSON.parse(result(2)), timestamp: '2026-10-11T07:00:00.000Z' })];
+		expect(storyFrom(night, CWD).activeMinutes).toBe(1);
+	});
+
+	it('S-84 adds up what each run of a resumed session cost', () => {
+		const cost = (startTime: number, totalCostUSD: number) => JSON.stringify({ type: 'cost-state', sessionId: 's', startTime, totalCostUSD });
+		// three runs; within a run the total only grows, and a new run starts from nothing
+		const story = storyFrom([prompt('a', 0), cost(1, 5), cost(1, 11.56), cost(2, 30), cost(2, 64.15), cost(3, 0.42)], CWD);
+		expect(story.costUSD).toBeCloseTo(76.13, 2);
+		expect(storyFrom([prompt('a', 0)], CWD).costUSD).toBeNull();
+	});
+
+	it('S-84 counts what a session\'s sub-agents edited and when they were at it', () => {
+		const side = { isSidechain: true };
+		const main = storyFrom([prompt('build it', 0), reply('m1', [use('Agent', { description: 'Build the strip' })], 1), reply('m2', [use('Edit', { file_path: `${CWD}/src/a.ts`, old_string: 'a', new_string: 'b' })], 2)], CWD);
+		const agent = storyReader(CWD, true);
+		for (const line of [
+			// what the session told its sub-agent is not something you typed
+			prompt('You are building one feature…', 3, side),
+			reply('s1', [use('Write', { file_path: `${CWD}/.claude/worktrees/agent-1/src/strip.ts`, content: 'one\ntwo' })], 4, side),
+			result(5),
+			reply('s2', [use('Edit', { file_path: `${CWD}/src/a.ts`, old_string: 'x', new_string: 'y\nz' }), use('Bash', { command: 'pnpm test' })], 8, side),
+			// a line of the session itself that ended up here is not the sub-agent's
+			reply('m9', [use('Bash', { command: 'echo no' })], 9)
+		]) agent.add(line);
+		const all = withAgents(main, [agent.done()]);
+		expect(all.files).toEqual([
+			{ path: 'src/a.ts', edits: 2, created: false },
+			{ path: '.claude/worktrees/agent-1/src/strip.ts', edits: 1, created: true }
+		]);
+		expect(all).toMatchObject({ promptCount: 1, commands: 1, toolCalls: 5, added: 1 + 2 + 2, removed: 1 + 1 });
+		// 09:00 to 09:02 by the session, on to 09:08 by its sub-agent: one stretch, counted once
+		expect(all.spans).toHaveLength(1);
+		expect(all.activeMinutes).toBe(8);
+		expect(minutesOf(all.spans)).toBe(8);
+		expect(withAgents(main, [])).toBe(main);
+	});
+
+	it('S-55 a line that is not what it should be is skipped, never an error', () => {
+		const odd = [
+			JSON.stringify({ type: 'assistant', timestamp: at(1), message: { content: [{ type: 'text', text: 123 }, { type: 'tool_use', name: 7, input: 'x' }] } }),
+			JSON.stringify({ type: 'assistant', timestamp: at(1), message: { content: [null, 5, 'text'] } }),
+			JSON.stringify({ type: 'user', timestamp: at(1), message: { content: [{ type: 'text', text: null }] } }),
+			'null',
+			'[]',
+			'{"type":"assistant","message":null,"timestamp":"x"}'
+		];
+		for (const line of odd) expect(() => actionsFrom(line, CWD)).not.toThrow();
+		expect(() => storyFrom(odd, CWD)).not.toThrow();
 	});
 });

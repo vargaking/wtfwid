@@ -45,6 +45,16 @@ describe('what happened on a day', () => {
 		expect(dayOf(lane([a, b]), DAY0)).toMatchObject({ minutes: 120, busy: 90 });
 	});
 
+	it('S-89: two sessions of one ticket side by side count the same way', () => {
+		// both at 09:00 to 10:00, $4 and $6: two hours of session time in one hour of the day
+		const s: [number, number] = [min('2026-10-08T09:00:00Z'), min('2026-10-08T10:00:00Z')];
+		const both = node('A', { work: { minutes: 120, sessions: 2, added: 0, removed: 0, tokens: 0, costUSD: 10, spans: [s, [...s]] } });
+		const other = node('B', { work: work([['2026-10-08T09:00:00Z', '2026-10-08T10:00:00Z']], 5) });
+		const day = dayOf(lane([both, other]), DAY0);
+		expect(day.items.map((i) => [i.node.id, i.minutes])).toEqual([['A', 120], ['B', 60]]);
+		expect(day).toMatchObject({ minutes: 180, busy: 60, costUSD: 15 });
+	});
+
 	it('S-89: a ticket\'s cost counts by the share of its work that fell in the day', () => {
 		// two hours in all, one of them on this day
 		const a = node('A', { work: work([['2026-10-07T09:00:00Z', '2026-10-07T10:00:00Z'], ['2026-10-08T09:00:00Z', '2026-10-08T10:00:00Z']], 10) });
