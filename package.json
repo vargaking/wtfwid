@@ -16,6 +16,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"test": "vitest run",
+		"spec": "node scripts/spec-check.js",
 		"start": "node start.js",
 		"desktop": "vite build && electron .",
 		"dist": "vite build && electron-builder"

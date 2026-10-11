@@ -102,7 +102,8 @@ folder), or copy a prompt that hands a new session everything wtfwid knows about
 ## What it does not do yet
 
 See [SPEC.md](SPEC.md). Every behaviour there has an ID and is marked *stated*, *assumed*
-or *open*; the tests name the statements they cover. The open ones:
+or *open*; the tests name the statements they cover. `pnpm spec` lists the statements no
+test names yet. The open ones:
 
 - planning chats on claude.ai as nodes
 - a written "decided / still open" summary per session
