@@ -51,7 +51,9 @@
 		},
 		"files": [
 			"build/**/*",
-			"electron/main.js",
+			"electron/*.js",
+			"!electron/*.test.js",
+			"electron/resources/tray*.png",
 			"package.json"
 		],
 		"linux": {

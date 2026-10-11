@@ -64,6 +64,44 @@ A release is published automatically: raise `"version"` in `package.json`, merge
 and the workflow in `.github/workflows/release.yml` builds all three and publishes them as
 `v<version>`.
 
+### New versions
+
+When a newer release is out, the header says so, next to "updated HH:MM".
+
+- **Linux AppImage:** it is a button, "Update to v0.1.2". It downloads the new AppImage
+  next to the one you are running, checks its size and SHA-256 against what GitHub
+  published for the release, and puts it in place of the old file. Then the button says
+  "Restart to finish". wtfwid never restarts by itself. If the download does not check out,
+  it is deleted, nothing changes, and the header says what failed.
+  The file keeps its name: `wtfwid-0.1.1-linux-x86_64.AppImage` is still called that when
+  it holds 0.1.2, so the launcher or desktop entry that points at it keeps working. The
+  folder the AppImage is in has to be writable by you.
+- **Windows, macOS, the browser version, a run from source:** it is a link to the release
+  page. Those builds are not code-signed, so they cannot replace themselves safely;
+  download the new installer there. From source, `git pull && pnpm install`.
+
+To find out, wtfwid makes one request to GitHub's public API
+(`api.github.com/repos/vargaking/wtfwid/releases/latest`) when it starts and every 6 hours
+after that. The request carries no key and no token, not your GitHub token either, and
+says nothing about you or your tickets; GitHub sees an address asking for a public page.
+Offline, it just finds nothing. Set `WTFWID_NO_UPDATE_CHECK=1` and it never asks.
+
+### The tray, and keeping it running
+
+The desktop app has a tray icon, with an amber dot when a ticket needs you. Its menu:
+
+- **Show wtfwid** brings the window back.
+- **2 need you** (or "Nothing needs you") does the same.
+- **Keep running when the window is closed**, off until you tick it. With it on, closing
+  the window hides it and wtfwid goes on running, so its notifications keep coming.
+- **Quit** really quits, also with "keep running" on. So do Ctrl+Q and Cmd+Q.
+
+The choice is kept in `~/.wtfwid/desktop.json`.
+
+A desktop without a tray (plain GNOME, unless you added an extension for it) never shows
+the icon, and wtfwid cannot tell. Nothing depends on it: starting wtfwid again always
+shows the window of the one that is already running.
+
 ### Package it yourself
 
 ```sh
