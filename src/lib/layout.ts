@@ -13,12 +13,14 @@ export const MAX_ROWS = 5;
 const PAD = 48;
 /** Room a node needs in its row: the mark, and a little air. */
 const NODE_W = 24;
+/** Room a counted cluster needs: its pill is wider than a single mark. */
+const PILL_W = 36;
+/** Air between two things in a row, and between a mark and its label. */
+const GAP = 4;
 /** Width of one character of a node's label (11px IBM Plex Mono). */
 const CHAR_W = 6.7;
 /** Longest label drawn next to a node, in characters. */
 const LABEL_MAX = 34;
-/** From a node's centre to where its label starts. */
-const LABEL_GAP = 16;
 /** Room a date label on the axis needs. */
 const LABEL_W = 80;
 /** How far left of a milestone's first node its branch leaves the trunk. */
@@ -35,12 +37,17 @@ export interface Cluster {
 	stage: Stage | null;
 	/** Finished work: drawn as a small mark, with a dimmer label (S-36). */
 	quiet: boolean;
-	/** Text drawn to the right of the node. Finished work only has one where there is room. */
+	/** Text drawn to the right of the node, as much of it as there is room for (S-36). */
 	label: string | null;
 	/** Full description, for the tooltip and screen readers. */
 	title: string;
-	/** Right edge of what is drawn, label included. */
+	/** Left and right edge of what is drawn: the mark, its air, and the label if it has one. */
+	left: number;
 	right: number;
+	/** Centre of the mark. A cluster's pill starts at its first node and reaches right, towards the later ones. */
+	markX: number;
+	/** Where the label starts. */
+	labelX: number;
 }
 
 export interface LaneBox {
@@ -111,11 +118,17 @@ const STATE_WORDS: Record<NodeState, string> = {
 	done: 'done'
 };
 
+/**
+ * A session or pull request with no ticket whose work is over. wtfwid remembers every
+ * session it has seen, so these stay for good: they are history, whatever state they ended in.
+ */
+export function past(node: GraphNode): boolean {
+	return node.status === null && node.sessions.every((s) => s.gone) && !node.prs.length;
+}
+
 /** History is drawn small and dim; what is still in play is drawn full size, with its name (S-36). */
-function quiet(node: GraphNode): boolean {
-	if (node.state === 'done') return true;
-	// a session or pull request with no ticket, that is over
-	return node.status === null && node.state === 'open' && node.sessions.every((s) => s.gone) && !node.prs.length;
+export function quiet(node: GraphNode): boolean {
+	return node.state === 'done' || past(node);
 }
 
 /** A node's short name, e.g. "ENG-12", and its full one, "ENG-12 · Fix login". */
@@ -134,75 +147,91 @@ function fit(node: GraphNode, chars: number): string | null {
 	return id.length <= max ? id : null;
 }
 
-function describe(nodes: GraphNode[], unsorted: boolean): Pick<Cluster, 'label' | 'title' | 'quiet'> {
-	const isQuiet = nodes.every(quiet);
-	if (nodes.length > 1) {
-		const state = mostUrgent(nodes.map((n) => n.state));
-		const what = `${nodes.length} ${unsorted ? 'items' : 'tickets'}`;
-		return { quiet: isQuiet, label: isQuiet ? null : what, title: `${what}, most urgent: ${STATE_WORDS[state]}` };
-	}
-	const [node] = nodes;
-	return { quiet: isQuiet, label: isQuiet ? null : fit(node, LABEL_MAX), title: `${names(node).name}, ${STATE_WORDS[node.state]}` };
+/** One thing drawn in a row: a single node, or several merged into a counted cluster. */
+interface Item {
+	x: number;
+	row: number;
+	nodes: GraphNode[];
+}
+
+/** Where an item's mark begins and ends. Merging more nodes in only ever moves the end. */
+const markLeft = (item: Item) => item.x - NODE_W / 2;
+const markRight = (item: Item) => markLeft(item) + (item.nodes.length > 1 ? PILL_W : NODE_W);
+
+/** The text an item gets when it has `chars` characters of room to its right. */
+function labelFor(item: Item, chars: number, unsorted: boolean): string | null {
+	if (item.nodes.length === 1) return fit(item.nodes[0], chars);
+	// a cluster's pill already shows the count; the words are for clusters that still matter
+	const words = `${item.nodes.length} ${unsorted ? 'items' : 'tickets'}`;
+	return item.nodes.every(quiet) || words.length > chars ? null : words;
+}
+
+/** Where an item ends if its label gets all the room it would like. Finished work asks for none. */
+function wanted(item: Item, unsorted: boolean): number {
+	const label = item.nodes.every(quiet) ? null : labelFor(item, LABEL_MAX, unsorted);
+	return markRight(item) + (label ? GAP + label.length * CHAR_W : 0);
 }
 
 /**
- * Places a lane's nodes (S-35). Each goes in the first row with room for it, so tickets
- * started close together stack below the line in the order they started. Only when every
- * row is taken does a node merge into the item just before it, which becomes a cluster.
+ * Places a lane's nodes (S-35). Marks never move off their time and never overlap; names
+ * give way first.
+ * 1. A node goes in the first row where it clears the last item and that item's full name.
+ * 2. If no row has that much room, it goes where it clears the last mark, in the row with
+ *    the most room, and that item's name is cut to what is left.
+ * 3. Only when every row has a mark in the way does it merge into the item nearest in
+ *    time, which becomes a counted cluster.
  */
 function place(lane: Lane, x: (iso: string) => number, maxRows: number): Cluster[] {
 	const unsorted = lane.kind === 'unsorted';
-	const extent = (nodes: GraphNode[], at: number) => {
-		const d = describe(nodes, unsorted);
-		const mark = nodes.length > 1 ? NODE_W + 12 : NODE_W; // a cluster's counted pill is wider
-		return { ...d, right: at + mark / 2 + (d.label ? 4 + d.label.length * CHAR_W : 0) };
-	};
-	type Item = { x: number; row: number; nodes: GraphNode[]; right: number };
-	const items: Item[] = [];
 	const rows: Item[][] = [];
 	for (const node of lane.nodes) {
 		const nx = Math.round(x(node.at));
-		let row = 0;
-		while (row < maxRows && rows[row] && nx - NODE_W / 2 < rows[row].at(-1)!.right + 4) row++;
-		if (row < maxRows) {
-			const item = { x: nx, row, nodes: [node], right: extent([node], nx).right };
-			(rows[row] ??= []).push(item);
-			items.push(item);
-		} else {
-			const nearest = rows.map((r) => r.at(-1)!).reduce((a, b) => (b.x > a.x ? b : a));
-			nearest.nodes.push(node);
-			nearest.right = extent(nearest.nodes, nearest.x).right;
+		const left = nx - NODE_W / 2;
+		const last = rows.map((r) => r.at(-1)!);
+		let row = last.findIndex((item) => wanted(item, unsorted) + GAP <= left);
+		if (row < 0 && rows.length < maxRows) row = rows.length;
+		if (row < 0) {
+			const clear = last.filter((item) => markRight(item) + GAP <= left);
+			if (clear.length) row = clear.reduce((a, b) => (b.x < a.x ? b : a)).row;
 		}
+		if (row < 0) last.reduce((a, b) => (b.x > a.x ? b : a)).nodes.push(node);
+		else (rows[row] ??= []).push({ x: nx, row, nodes: [node] });
 	}
 
-	// S-36: a finished ticket gets its name too, as far as the gap to its right neighbour allows.
-	const room = new Map<Item, number>();
-	for (const row of rows) {
-		row.forEach((item, i) => {
-			const next = row[i + 1];
-			room.set(item, next ? Math.floor((next.x - NODE_W / 2 - 4 - item.x - LABEL_GAP) / CHAR_W) : LABEL_MAX);
-		});
-	}
-
-	return items.map((g) => {
-		const d = extent(g.nodes, g.x);
-		const label = d.label ?? (g.nodes.length === 1 ? fit(g.nodes[0], room.get(g)!) : null);
-		return {
-			key: g.nodes[0].id,
-			x: g.x,
-			row: g.row,
-			nodes: g.nodes,
-			state: mostUrgent(g.nodes.map((n) => n.state)),
-			stage: g.nodes.length === 1 ? g.nodes[0].stage : null,
-			...d,
-			label
-		};
-	});
+	return rows
+		.flatMap((items) =>
+			items.map((item, i): Cluster => {
+				const next = items[i + 1];
+				const start = markRight(item) + GAP;
+				// S-36: a name gets the room up to the next item in its row
+				const chars = next ? Math.floor((markLeft(next) - GAP - start) / CHAR_W) : LABEL_MAX;
+				const label = labelFor(item, chars, unsorted);
+				const [first] = item.nodes;
+				const state = mostUrgent(item.nodes.map((n) => n.state));
+				const count = `${item.nodes.length} ${unsorted ? 'items' : 'tickets'}`;
+				return {
+					key: first.id,
+					x: item.x,
+					row: item.row,
+					nodes: item.nodes,
+					state,
+					stage: item.nodes.length === 1 ? first.stage : null,
+					quiet: item.nodes.every(quiet),
+					label,
+					title: item.nodes.length === 1 ? `${names(first).name}, ${STATE_WORDS[first.state]}` : `${count}, most urgent: ${STATE_WORDS[state]}`,
+					left: markLeft(item),
+					right: label ? start + label.length * CHAR_W : markRight(item),
+					markX: (markLeft(item) + markRight(item)) / 2,
+					labelX: start
+				};
+			})
+		)
+		.sort((a, b) => a.x - b.x || a.row - b.row);
 }
 
 function statusText(lane: Lane): { status: string; urgent: boolean } {
 	if (lane.closed) return { status: 'finished', urgent: false };
-	const n = (s: NodeState) => lane.nodes.filter((node) => node.state === s).length;
+	const n = (s: NodeState) => lane.nodes.filter((node) => node.state === s && !past(node)).length;
 	const parts = [
 		n('needs') && `${n('needs')} ${n('needs') === 1 ? 'needs' : 'need'} you`,
 		n('failed') && `${n('failed')} failed`,
