@@ -68,6 +68,10 @@ describe('what the dialog may send', () => {
 		});
 	});
 
+	it('S-74 keeps a repository once, however often and in whatever case it was typed', () => {
+		expect(parsePatch({ githubRepos: ['o/r', 'a/b', 'O/R', 'o/r'] })).toEqual({ githubRepos: ['o/r', 'a/b'] });
+	});
+
 	it('S-74 says what is wrong with an invalid one', () => {
 		expect(parsePatch(null)).toBe('Expected an object.');
 		expect(parsePatch({ githubRepos: ['not a repo'] })).toBe('"not a repo" is not a repository. Write it as owner/name.');

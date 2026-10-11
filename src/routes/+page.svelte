@@ -56,6 +56,8 @@
 		focusId = null;
 		await tick();
 		timeline?.reveal(node.id);
+		// hand the keyboard to the ticket that was just opened, not back to the top of the page
+		document.getElementById('ticket-panel')?.focus({ preventScroll: true });
 	}
 
 	/** S-15: go to the next ticket in this state, after the one that is open, and open it. */

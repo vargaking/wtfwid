@@ -47,8 +47,8 @@ three weeks, grouped into projects and project milestones, no sub-issues.
 - **S-32** assumed — A ticket appears once it has been started or completed, or has a session or pull request. Untouched backlog is not shown.
 - **S-33** assumed — Cancelled and duplicate issues are not shown.
 - **S-34** assumed — A node sits at the time work began: issue `startedAt`, else first session, else first pull request, else completion.
-- **S-35** assumed — Tickets started close together stack in rows under their line, in the order they started, and the lane grows to fit. Reason: in the real data tickets start in bursts, so on one row most of them merged into counted clusters at every zoom. Only when all five rows are taken do tickets merge into a counted cluster, coloured by its most urgent member.
-- **S-36** assumed — A ticket still in play is drawn full size with its ID and title next to it. A finished one is a small mark, with its ID or title in a dimmer colour only where there is room before the next ticket. Every node has its full name as a tooltip.
+- **S-35** assumed — Tickets started close together stack in rows under their line, in the order they started, and the lane grows to fit. Reason: in the real data tickets start in bursts, so on one row most of them merged into counted clusters at every zoom. A mark never moves off its own time and never overlaps another. When rows get crowded, names give way first: a ticket goes where its mark has room and the name before it is cut short. Only when every one of the five rows has a mark in the way does a ticket merge into the nearest one in time, which becomes a counted cluster, coloured by its most urgent member. A cluster's pill starts at its first ticket and reaches right.
+- **S-36** assumed — A ticket still in play is drawn full size with its ID and title next to it, as much of them as fits before the next ticket in its row. A finished one is a small mark, with its ID or title in a dimmer colour under the same rule. A session that ended without a ticket is history too, whatever state it ended in. Every node has its full name as a tooltip.
 
 ## State
 
