@@ -103,7 +103,7 @@ export function buildGraph(snap: Snapshot): Graph {
 	const prsOf = new Map<string, PullRequest[]>();
 	const loose: GraphNode[] = [];
 	for (const s of snap.sessions) {
-		const issue = find(`${s.name ?? ''} ${s.cwd}`);
+		const issue = find(`${s.name ?? ''} ${s.branch ?? ''} ${s.cwd}`);
 		if (issue) sessionsOf.set(issue.id, [...(sessionsOf.get(issue.id) ?? []), s]);
 		else loose.push(sessionNode(s)); // S-52
 	}
