@@ -174,8 +174,18 @@ What it does leave is its link, in the description of the pull request it opens 
 This needs a GitHub token (or a logged-in `gh`), because it reads the files and commits of
 each pull request: two requests per pull request, once, kept in `~/.wtfwid/pulls.json`.
 
-Not shown for a cloud session, because nothing says it: whether it is running or waiting,
-how long it worked, what it cost.
+Not shown for a cloud session from GitHub alone, because nothing there says it: whether it
+is running or waiting, how long it worked, what it cost.
+
+### Working or waiting: the relay
+
+For that the session has to say so itself. The [`relay`](relay/README.md) folder holds a
+very small server to put on the internet (a Cloudflare Worker, or Node on a machine of
+yours), a hook for your repositories that reports each session's state to it, and a
+connector with which any conversation, a Claude Project chat included, can leave a note
+on a ticket. With the relay's address and read token in Settings, a cloud session shows as
+working, needing you or done with its turn, with what it last said, and notifies you like
+a local one. Setting it up takes about ten minutes and is described there.
 
 ## Which tickets belong together
 

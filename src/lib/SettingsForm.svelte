@@ -10,13 +10,14 @@
 	}
 	let { first = false, onsaved, oncancel }: Props = $props();
 
-	type Secret = 'linearKey' | 'githubToken';
+	type Secret = 'linearKey' | 'githubToken' | 'relayToken';
 
 	let current = $state<PublicSettings | null>(null);
 	let team = $state('');
 	let repos = $state('');
-	let typed = $state<Record<Secret, string>>({ linearKey: '', githubToken: '' });
-	let removing = $state<Record<Secret, boolean>>({ linearKey: false, githubToken: false });
+	let relay = $state('');
+	let typed = $state<Record<Secret, string>>({ linearKey: '', githubToken: '', relayToken: '' });
+	let removing = $state<Record<Secret, boolean>>({ linearKey: false, githubToken: false, relayToken: false });
 	let error = $state('');
 	let saving = $state(false);
 
@@ -29,14 +30,15 @@
 		current = await res.json();
 		team = current!.linearTeam;
 		repos = current!.githubRepos.join(', ');
+		relay = current!.relayUrl;
 	});
 
 	async function save(event: SubmitEvent) {
 		event.preventDefault();
 		saving = true;
 		error = '';
-		const body: Record<string, unknown> = { linearTeam: team, githubRepos: repos.split(/[\s,]+/).filter(Boolean) };
-		for (const name of ['linearKey', 'githubToken'] as const) {
+		const body: Record<string, unknown> = { linearTeam: team, githubRepos: repos.split(/[\s,]+/).filter(Boolean), ...(!first && { relayUrl: relay }) };
+		for (const name of ['linearKey', 'githubToken', 'relayToken'] as const) {
 			if (typed[name]) body[name] = typed[name];
 			else if (removing[name]) body[name] = null;
 		}
@@ -99,6 +101,12 @@
 			locked: 'A token is saved, but the desktop app encrypted it and it cannot be read here. Type it again to use it here.',
 			env: 'Using the token from your environment. A token saved here takes its place.',
 			none: 'Optional. Without one, wtfwid uses the login of the GitHub CLI (gh).'
+		},
+		relayToken: {
+			saved: 'A token is saved. Type a new one to replace it.',
+			locked: 'A token is saved, but the desktop app encrypted it and it cannot be read here. Type it again to use it here.',
+			env: 'Using the token from your environment. A token saved here takes its place.',
+			none: "The relay's read token. Not the one the sessions write with."
 		}
 	};
 </script>
@@ -148,6 +156,19 @@
 
 	{#if !first}
 		{@render secret('githubToken', 'GitHub token', false)}
+
+		<!-- S-91: only for sessions that run in the cloud and report to a relay of your own -->
+		<fieldset class="flex flex-col gap-5 border-t border-edge pt-4">
+			<legend class="sr-only">Sessions in the cloud</legend>
+			<div>
+				<label class="font-medium" for="settings-relay">Relay address (optional)</label>
+				<input id="settings-relay" class="field mt-1.5 w-full" autocomplete="off" spellcheck="false" placeholder="https://wtfwid-relay.example.workers.dev" aria-describedby="settings-relay-hint" bind:value={relay} />
+				<p id="settings-relay-hint" class="mt-1.5 text-[13px] text-muted">
+					Sessions that run in the cloud cannot be seen from here. With a relay they say themselves whether they are working or waiting for you. How to set one up is in the relay folder of the repository.
+				</p>
+			</div>
+			{@render secret('relayToken', 'Relay read token', false)}
+		</fieldset>
 	{/if}
 
 	{#if current}

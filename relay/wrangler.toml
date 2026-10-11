@@ -1,0 +1,12 @@
+# The wtfwid relay as a Cloudflare Worker. See README.md in this folder.
+name = "wtfwid-relay"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+# `wrangler d1 create wtfwid-relay` prints the id to put here.
+[[d1_databases]]
+binding = "DB"
+database_name = "wtfwid-relay"
+database_id = "PUT-THE-ID-HERE"
+
+# The two tokens are secrets, not settings: `wrangler secret put WRITE_TOKEN` and `READ_TOKEN`.

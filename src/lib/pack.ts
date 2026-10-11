@@ -51,6 +51,13 @@ export function contextPack(node: GraphNode, notes: Record<string, SessionNote |
 	for (const s of sessions) {
 		const note = notes[s.id];
 		out.push('', `## Earlier session${s.name ? ` "${s.name}"` : ''}, started ${day(s.startedAt)}`);
+		if (s.kind === 'cloud') {
+			// it ran in the cloud: what there is of it is what it reported, and its page
+			if (s.url) out.push('', `It ran in the cloud: ${s.url}`);
+			if (s.lastAsked) out.push('', 'The last thing I asked:', quoted(s.lastAsked));
+			if (s.lastSaid) out.push('', 'Where it ended:', quoted(s.lastSaid));
+			continue;
+		}
 		if (!note) {
 			// null: looked for and gone. Nothing at all: it could not be read, which is not the same claim.
 			out.push('', note === null ? 'Its transcript is not on this machine any more.' : 'Its transcript could not be read just now.');
@@ -65,6 +72,13 @@ export function contextPack(node: GraphNode, notes: Record<string, SessionNote |
 			out.push('', `Files it changed${files.length > FILES_PACKED ? ` (the ${FILES_PACKED} it changed most, of ${files.length})` : ''}:`);
 			for (const f of files.slice(0, FILES_PACKED)) out.push(`- ${f.path}${f.created ? ' (new)' : ''}`);
 		}
+	}
+
+	// S-91: where earlier conversations got to, as they noted it themselves
+	for (const note of [...(node.notes ?? [])].reverse()) {
+		out.push('', `## Note from ${day(note.at)}: ${note.title}`, '', note.summary);
+		if (note.decided.length) out.push('', 'Decided:', ...note.decided.map((d) => `- ${d}`));
+		if (note.open.length) out.push('', 'Still open:', ...note.open.map((d) => `- ${d}`));
 	}
 
 	// S-86: other work on the same part of the code, so the new session knows where to look

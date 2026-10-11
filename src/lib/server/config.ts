@@ -24,6 +24,9 @@ export async function config() {
 		linearTeam: saved.linearTeam ?? (env.WTFWID_LINEAR_TEAM || null),
 		githubToken: saved.githubToken || env.GITHUB_TOKEN || env.GH_TOKEN || null,
 		githubRepos: saved.githubRepos ?? list(env.WTFWID_GITHUB_REPOS),
+		/** The relay cloud sessions report to, and the token that reads it (S-91). Both or neither. */
+		relayUrl: saved.relayUrl ?? (env.WTFWID_RELAY_URL || null),
+		relayToken: saved.relayToken || env.WTFWID_RELAY_READ_TOKEN || null,
 		home: home(),
 		/** Load a saved snapshot instead of calling anything. For development. */
 		snapshotFile: env.WTFWID_SNAPSHOT || null
@@ -39,6 +42,8 @@ export async function publicSettings(): Promise<PublicSettings> {
 		githubRepos: saved.githubRepos ?? list(env.WTFWID_GITHUB_REPOS),
 		linearKey: secretState(saved.linearKey, saved.locked.includes('linearKey'), env.LINEAR_API_KEY),
 		githubToken: secretState(saved.githubToken, saved.locked.includes('githubToken'), env.GITHUB_TOKEN || env.GH_TOKEN),
+		relayUrl: saved.relayUrl ?? env.WTFWID_RELAY_URL ?? '',
+		relayToken: secretState(saved.relayToken, saved.locked.includes('relayToken'), env.WTFWID_RELAY_READ_TOKEN),
 		storage: currentVault() ? 'keychain' : 'file',
 		file: join(home(), 'settings.json')
 	};

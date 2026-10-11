@@ -3,7 +3,7 @@ import { open, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Action, LiveEvent, Session } from '../model';
 import { config } from './config';
-import { pulse } from './collect';
+import { pulse, relayState } from './collect';
 import { listSessions } from './sessions';
 import { actionsFrom } from './story';
 import { agentTranscripts, claudeHome, findTranscript, readNote } from './transcript';
@@ -240,9 +240,20 @@ export function hub(): Hub {
 	return (slot.__wtfwidLive ??= createHub({
 		// With a saved snapshot or no Linear key there are no sessions to follow; the screen
 		// still wants to know when the snapshot file changes.
-		list: async () => ((await following()) ? listSessions() : []),
+		// Sessions in the cloud are listed too (S-91): there is no transcript of theirs to follow,
+		// but when one starts needing you the screen should say so as fast as for a local one.
+		list: async () => {
+			if (!(await following())) return [];
+			const cloud = await relayState(await config()).then((r) => r.sessions, () => []);
+			return [...(await listSessions()), ...cloud];
+		},
 		beat: async () => ((await following()) ? null : pulse()),
-		hint: () => sessionFilesStamp(claudeHome())
+		// Claude Code's own session files, and what sessions in the cloud last reported: when
+		// either changes it is worth listing again. The relay is asked at most every five seconds.
+		hint: async () => {
+			const cloud = await relayState(await config()).then((r) => signature(r.sessions), () => '');
+			return `${await sessionFilesStamp(claudeHome())}#${cloud}`;
+		}
 	}));
 }
 

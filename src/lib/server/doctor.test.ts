@@ -10,7 +10,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const ID = '11111111-2222-4333-8444-555555555555';
 const OTHER = '99999999-2222-4333-8444-555555555555';
 
-const cfg = (over = {}) => ({ linearKey: 'key', linearTeam: 'ENG', githubToken: null, githubRepos: ['o/r', 'o/private'], home: '/nowhere', snapshotFile: null, ...over });
+const cfg = (over = {}) => ({ linearKey: 'key', linearTeam: 'ENG', githubToken: null, githubRepos: ['o/r', 'o/private'], relayUrl: null, relayToken: null, home: '/nowhere', snapshotFile: null, ...over });
 const issue = (n: number, over = {}) => ({
 	identifier: `ENG-${n}`, title: 'secret title', url: 'u', createdAt: 'c', startedAt: n % 2 ? '2026-10-01T09:00:00.000Z' : null, completedAt: null, canceledAt: null,
 	branchName: `dev/eng-${n}-thing`, state: { name: 'Todo', type: 'unstarted' }, project: { id: 'p', name: 'Web' }, projectMilestone: n === 1 ? { id: 'm', name: 'Voice' } : null, ...over
@@ -68,7 +68,9 @@ describe('checking the connections', () => {
 				'ok   Cloud sessions: Pull requests name the Claude Code session that made them (1 of 2 in the description).',
 				'       1 of 2 pull requests belong to a ticket, by their branch or title',
 				'       1 name a session in their description',
-				'       Of the 2 most recent, 2 name a session in their commits'
+				'       Of the 2 most recent, 2 name a session in their commits',
+				'-    Relay: No relay is set.',
+				'       Without one, wtfwid cannot say whether a session in the cloud is working or waiting for you'
 			].join('\n')
 		);
 	});
@@ -88,7 +90,7 @@ describe('checking the connections', () => {
 		let asked = 0;
 		const counting = (async () => (asked++, json([]))) as unknown as typeof fetch;
 		const checks = await checkAll({ cfg: cfg({ linearKey: null, githubRepos: [] }), fetcher: counting, list: async () => [], claude: '/nowhere', ghToken: async () => null });
-		expect(checks.map((c) => [c.name, c.ok])).toEqual([['Linear', null], ['GitHub', null], ['Claude Code', true], ['Session transcripts', null], ['Sessions on tickets', null], ['Cloud sessions', null]]);
+		expect(checks.map((c) => [c.name, c.ok])).toEqual([['Linear', null], ['GitHub', null], ['Claude Code', true], ['Session transcripts', null], ['Sessions on tickets', null], ['Cloud sessions', null], ['Relay', null]]);
 		expect(asked).toBe(0);
 	});
 
@@ -122,7 +124,7 @@ describe('checking the connections', () => {
 	it('S-90 says whether pull requests name the sessions that made them, and does not call a cloud-only setup broken', async () => {
 		// one stray local session that matches nothing, no transcripts: someone who works in the cloud
 		const checks = await checkAll({ cfg: cfg({ githubRepos: ['o/r'] }), fetcher, list: async () => [session(OTHER, { name: 'scratch' })], claude: '/nowhere', ghToken: async () => 'tok' });
-		expect(checks.map((c) => [c.name, c.ok])).toEqual([['Linear', true], ['GitHub', true], ['Claude Code', true], ['Session transcripts', null], ['Sessions on tickets', null], ['Cloud sessions', true]]);
+		expect(checks.map((c) => [c.name, c.ok])).toEqual([['Linear', true], ['GitHub', true], ['Claude Code', true], ['Session transcripts', null], ['Sessions on tickets', null], ['Cloud sessions', true], ['Relay', null]]);
 		// with no token the files and commits are not read, and it says what that costs
 		const bare = await checkAll({ cfg: cfg({ githubRepos: ['o/r'] }), fetcher, list: async () => [], claude: '/nowhere', ghToken: async () => null });
 		expect(bare[5].details.at(-1)).toMatch(/^No GitHub token/);

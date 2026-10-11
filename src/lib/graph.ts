@@ -1,4 +1,4 @@
-import type { Graph, GraphNode, Issue, Lane, NodeState, PullRequest, Session, Snapshot } from './model';
+import type { Graph, GraphNode, Issue, Lane, NodeState, Note, PullRequest, Session, Snapshot } from './model';
 
 const ID_RE = /[a-z][a-z0-9]*-\d+/g;
 const HIDDEN_STATE_TYPES = new Set(['canceled', 'duplicate']);
@@ -35,8 +35,9 @@ export function ticketState(issue: Issue, sessions: Session[], prs: PullRequest[
 	return 'open';
 }
 
-function ticketNode(issue: Issue, sessions: Session[], prs: PullRequest[]): GraphNode {
+function ticketNode(issue: Issue, sessions: Session[], prs: PullRequest[], notes: Note[] = []): GraphNode {
 	return {
+		...(notes.length && { notes: [...notes].sort((a, b) => b.at.localeCompare(a.at)) }),
 		id: issue.id,
 		label: issue.id,
 		title: issue.title,
@@ -115,7 +116,8 @@ export function buildGraph(raw: Snapshot): Graph {
 	const prsOf = new Map<string, PullRequest[]>();
 	const loose: GraphNode[] = [];
 	for (const s of snap.sessions) {
-		const issue = find(`${s.name ?? ''} ${s.branch ?? ''} ${s.cwd}`);
+		// what a session said it is for comes first (S-91), then its name, its branch and its folder
+		const issue = find(`${s.ticket ?? ''} ${s.name ?? ''} ${s.branch ?? ''} ${s.cwd}`);
 		if (issue) sessionsOf.set(issue.id, [...(sessionsOf.get(issue.id) ?? []), s]);
 		// S-83: a past session found on disk that belongs to no ticket is another project's, or noise
 		else if (!(s.fromDisk && s.gone)) loose.push(sessionNode(s)); // S-52
@@ -124,6 +126,13 @@ export function buildGraph(raw: Snapshot): Graph {
 		const issue = find(`${p.branch} ${p.title}`);
 		if (issue) prsOf.set(issue.id, [...(prsOf.get(issue.id) ?? []), p]);
 		else if (p.state === 'open' || p.state === 'draft') loose.push(prNode(p)); // S-52
+	}
+
+	// S-91: notes conversations left, on the ticket they name; one that names none is not shown
+	const notesOf = new Map<string, Note[]>();
+	for (const note of unique(raw.notes ?? [], (n) => n.id)) {
+		const issue = find(`${note.ticket ?? ''} ${note.title}`);
+		if (issue) notesOf.set(issue.id, [...(notesOf.get(issue.id) ?? []), note]);
 	}
 
 	const lanes = new Map<string, Lane>();
@@ -135,7 +144,9 @@ export function buildGraph(raw: Snapshot): Graph {
 	for (const issue of issues) {
 		const sessions = sessionsOf.get(issue.id) ?? [];
 		const prs = prsOf.get(issue.id) ?? [];
-		if (!issue.startedAt && !issue.completedAt && !sessions.length && !prs.length) continue; // S-32
+		const notes = notesOf.get(issue.id) ?? [];
+		// a ticket someone only talked about so far is on the timeline too: that talk is work on it
+		if (!issue.startedAt && !issue.completedAt && !sessions.length && !prs.length && !notes.length) continue; // S-32
 
 		const trunkId = `p:${issue.project?.id ?? 'none'}`;
 		const projectName = issue.project?.name ?? 'No project'; // S-22
@@ -148,7 +159,7 @@ export function buildGraph(raw: Snapshot): Graph {
 					parent: trunkId
 				})) // S-21
 			: trunk;
-		target.nodes.push(ticketNode(issue, sessions, prs));
+		target.nodes.push(ticketNode(issue, sessions, prs, notes));
 	}
 
 	for (const l of lanes.values()) l.nodes.sort((a, b) => a.at.localeCompare(b.at));

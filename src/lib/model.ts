@@ -61,7 +61,8 @@ export interface Session {
 	id: string;
 	name: string | null;
 	cwd: string;
-	kind: 'interactive' | 'background';
+	/** `cloud`: it runs on Anthropic's machines and says so itself, through the relay (S-91). */
+	kind: 'interactive' | 'background' | 'cloud';
 	startedAt: string;
 	state: 'needs' | 'working' | 'failed' | 'open' | 'done';
 	/** What a blocked session is waiting on, as Claude Code reports it. */
@@ -72,8 +73,28 @@ export interface Session {
 	branch?: string | null;
 	/** Found as a transcript on disk, never seen listed by Claude Code (S-83). */
 	fromDisk?: boolean;
-	/** When it last wrote to its transcript. */
+	/** When it last wrote to its transcript, or last reported. */
 	lastAt?: string | null;
+	/** A cloud session's page on claude.ai. */
+	url?: string | null;
+	/** The ticket it said it is for, when it said so (S-91). */
+	ticket?: string | null;
+	/** The last thing you asked and the last thing it said, as it reported them. */
+	lastAsked?: string | null;
+	lastSaid?: string | null;
+}
+
+/** What a conversation left on a ticket through the connector (S-91): where it got to. */
+export interface Note {
+	id: string;
+	at: string;
+	ticket: string | null;
+	title: string;
+	summary: string;
+	decided: string[];
+	open: string[];
+	/** A link to the conversation, when it gave one. */
+	url: string | null;
 }
 
 /** What a session's transcript says it was doing (S-55). */
@@ -100,6 +121,8 @@ export interface Snapshot {
 	issues: Issue[];
 	prs: PullRequest[];
 	sessions: Session[];
+	/** Notes left through the connector, oldest first. */
+	notes?: Note[];
 }
 
 /** One thing a session did, in a few words. */
@@ -224,6 +247,8 @@ export interface GraphNode {
 	prs: PullRequest[];
 	/** Left out when none of its sessions has been read. */
 	work?: Work;
+	/** Notes conversations left on it, newest first (S-91). */
+	notes?: Note[];
 }
 
 export interface Lane {
@@ -262,6 +287,8 @@ export interface PublicSettings {
 	githubRepos: string[];
 	linearKey: SecretState;
 	githubToken: SecretState;
+	relayUrl: string;
+	relayToken: SecretState;
 	/** How a key saved now would be stored. */
 	storage: 'keychain' | 'file';
 	file: string;
