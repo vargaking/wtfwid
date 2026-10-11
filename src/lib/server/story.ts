@@ -147,7 +147,7 @@ export function storyReader(cwd: string) {
 	const usage = new Map<string, { input: number; output: number; cached: number }>();
 	const story: SessionStory = {
 		startedAt: null, endedAt: null, activeMinutes: 0, prompts: [], promptCount: 0, files: [], commands: 0, toolCalls: 0,
-		added: 0, removed: 0, tokens: { input: 0, output: 0, cached: 0 }, costUSD: null, branches: [], recent: []
+		added: 0, removed: 0, tokens: { input: 0, output: 0, cached: 0 }, costUSD: null, branches: [], recent: [], spans: []
 	};
 	let activeMs = 0;
 	let lastAt: number | null = null;
@@ -157,7 +157,12 @@ export function storyReader(cwd: string) {
 		if (Number.isNaN(t)) return;
 		story.startedAt ??= at!;
 		story.endedAt = at!;
-		if (lastAt !== null && t > lastAt && t - lastAt <= IDLE_MS) activeMs += t - lastAt;
+		const span = story.spans.at(-1);
+		if (lastAt === null || !span || t - lastAt > IDLE_MS) story.spans.push([t, t]);
+		else if (t > lastAt) {
+			activeMs += t - lastAt;
+			span[1] = t;
+		}
 		lastAt = Math.max(lastAt ?? t, t);
 	}
 

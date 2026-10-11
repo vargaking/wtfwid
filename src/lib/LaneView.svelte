@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { MAX_ZOOM, MIN_ZOOM, ROW_H, tOf, xOf, type Cluster, type Layout } from './layout';
+	import { MAX_ZOOM, MIN_ZOOM, ROW_H, startOfDay, tOf, xOf, type Cluster, type Layout } from './layout';
+	import { arcs as drawArcs, type Link } from './arcs';
 	import Mark from './Mark.svelte';
+	import type { NodeState } from './model';
 	import Overview from './Overview.svelte';
 
 	interface Props {
@@ -12,8 +14,22 @@
 		onpick: (cluster: Cluster) => void;
 		/** Fold or unfold a finished lane. */
 		onfold: (laneId: string) => void;
+		/** S-86: what the open ticket is related to. Drawn as lines from it; everything else steps back. */
+		links?: Link[];
+		/** S-88: when the open ticket was worked on, as [from, to] in minutes since 1970, and its state for the colour. */
+		worked?: { spans: [number, number][]; state: NodeState } | null;
+		/** S-89: the stretch of days the side panel is about, drawn as a band. */
+		day?: { from: number; to: number } | null;
+		/** A date on the axis was clicked: the start of that day. */
+		ondaypick?: (t: number) => void;
 	}
-	let { view, pxPerDay = $bindable(), picked, onpick, onfold }: Props = $props();
+	let { view, pxPerDay = $bindable(), picked, onpick, onfold, links = [], worked = null, day = null, ondaypick }: Props = $props();
+
+	const arcs = $derived(drawArcs(view, links));
+	/** The ids at either end of a line. While there are lines, what is not among them is drawn dim. */
+	const linked = $derived(new Set(links.flatMap((l) => [l.a, l.b])));
+	const isLinked = (c: Cluster) => c.nodes.some((n) => linked.has(n.id));
+	const MINUTE = 60_000;
 
 
 	let viewport: HTMLElement;
@@ -99,6 +115,12 @@
 				<div aria-hidden="true" class="absolute inset-y-0 w-px bg-grid" style="left: {t.x}px"></div>
 			{/each}
 			<div aria-hidden="true" class="absolute inset-y-0 border-l border-dashed border-faint" style="left: {view.nowX}px"></div>
+			{#if day}
+				<!-- S-89: the day, or week, the side panel is about -->
+				{@const left = xOf(day.from, view.t0, pxPerDay)}
+				<!-- two lines, no fill: names on the timeline have their own background and would punch holes in one -->
+				<div aria-hidden="true" class="absolute inset-y-0 box-border border-x border-rail" style="left: {left}px; width: {xOf(day.to, view.t0, pxPerDay) - left}px"></div>
+			{/if}
 
 			{#each view.connectors as c (c.left + ':' + c.top + ':' + c.height)}
 				<div
@@ -111,10 +133,36 @@
 			<div class="sticky top-0 z-30 box-border h-10 border-b border-edge bg-ground font-mono text-xs text-muted">
 				{#each view.ticks as t (t.x)}
 					{#if t.label}
-						<span class="absolute top-3 whitespace-nowrap" style="left: {t.x + 6}px">{t.label}</span>
+						<!-- S-89: a date is a button: what happened that day (that week, when dates are a week apart) -->
+						<button
+							type="button"
+							aria-pressed={day?.from === t.t}
+							title={view.tickDays === 1 ? 'What happened that day' : 'What happened that week'}
+							class="absolute top-1 h-8 rounded px-1.5 whitespace-nowrap hover:bg-edge hover:text-ink {day?.from === t.t ? 'bg-edge text-ink' : ''}"
+							style="left: {t.x}px"
+							onclick={() => ondaypick?.(t.t)}>{t.label}</button
+						>
 					{/if}
 				{/each}
-				<span class="absolute top-3 whitespace-nowrap text-ink" style="left: {view.nowX + 6}px">{view.nowLabel}</span>
+				<button
+					type="button"
+					aria-pressed={day?.from === startOfDay(view.now)}
+					title="What happened today"
+					class="absolute top-1 h-8 rounded px-1.5 whitespace-nowrap text-ink hover:bg-edge {day?.from === startOfDay(view.now) ? 'bg-edge' : ''}"
+					style="left: {view.nowX}px"
+					onclick={() => ondaypick?.(startOfDay(view.now))}>{view.nowLabel}</button
+				>
+				{#if worked}
+					<!-- S-88: when the open ticket was worked on, along the bottom of the axis -->
+					{#each worked.spans as [from, to] (from)}
+						{@const left = xOf(from * MINUTE, view.t0, pxPerDay)}
+						<span
+							aria-hidden="true"
+							class="s-{worked.state} absolute -bottom-px h-[3px] rounded-sm"
+							style="left: {left}px; width: {Math.max(2, xOf(to * MINUTE, view.t0, pxPerDay) - left)}px; background: var(--tone)"
+						></span>
+					{/each}
+				{/if}
 			</div>
 
 			{#each view.lanes as box (box.lane.id)}
@@ -155,17 +203,27 @@
 							type="button"
 							aria-label={c.title}
 							title={c.title}
-							class="absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center {box.folded ? 'h-4 min-w-3.5' : 'h-6 min-w-6'}"
+							class="absolute flex -translate-x-1/2 -translate-y-1/2 items-center justify-center transition-opacity {box.folded ? 'h-4 min-w-3.5' : 'h-6 min-w-6'}"
+							class:opacity-50={arcs.length > 0 && !isLinked(c) && !isPicked(c)}
 							style="left: {c.markX}px; top: {cy}px"
 							onclick={() => onpick(c)}
 						>
-							<Mark state={c.state} stage={c.stage} count={c.nodes.length} selected={isPicked(c)} small={box.folded || (c.quiet && c.stage !== null)} alive={c.state === 'working' || c.state === 'needs'} />
+							<Mark
+								state={c.state}
+								stage={c.stage}
+								count={c.nodes.length}
+								selected={isPicked(c)}
+								linked={arcs.length > 0 && isLinked(c) && !isPicked(c)}
+								small={box.folded || (c.quiet && c.stage !== null)}
+								alive={c.state === 'working' || c.state === 'needs'}
+							/>
 						</button>
 						{#if c.label}
 							<!-- starts clear of the selection ring around the mark -->
 							<div
 								aria-hidden="true"
-								class="s-{c.state} pointer-events-none absolute -translate-y-1/2 bg-ground pr-1 font-mono text-[11px] leading-4 whitespace-nowrap"
+								class="s-{c.state} pointer-events-none absolute -translate-y-1/2 bg-ground pr-1 font-mono text-[11px] leading-4 whitespace-nowrap transition-opacity"
+								class:opacity-50={arcs.length > 0 && !isLinked(c) && !isPicked(c)}
 								style="left: {c.labelX}px; top: {cy}px; color: {c.quiet ? 'color-mix(in srgb, var(--color-muted) 70%, var(--color-ground))' : 'var(--tone)'}"
 							>
 								{c.label}
@@ -174,6 +232,29 @@
 					{/each}
 				</div>
 			{/each}
+
+			{#if arcs.length}
+				<!-- S-86: lines from the open ticket to what it is related to, over everything else -->
+				<svg aria-hidden="true" class="pointer-events-none absolute top-0 left-0 z-20 overflow-visible" width={view.width} height={view.height}>
+					<defs>
+						<marker id="arc-head" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+							<path d="M0 0.5 L7.5 4 L0 7.5 z" fill="var(--color-ink)" />
+						</marker>
+					</defs>
+					{#each arcs as arc (arc.key)}
+						<path
+							d={arc.d}
+							fill="none"
+							stroke="var(--color-ink)"
+							stroke-width={arc.width}
+							stroke-opacity={arc.continued ? 0.9 : 0.55}
+							stroke-dasharray={arc.continued ? undefined : '2 5'}
+							stroke-linecap="round"
+							marker-end={arc.continued ? 'url(#arc-head)' : undefined}
+						/>
+					{/each}
+				</svg>
+			{/if}
 		</div>
 	</section>
 

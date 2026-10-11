@@ -2,10 +2,12 @@
 	import { goto, refreshAll } from '$app/navigation';
 	import { onMount, tick, untrack } from 'svelte';
 	import LaneView from '#lib/LaneView.svelte';
-	import { layout, nextInState, restoreView, unfinished, type Cluster } from '#lib/layout.ts';
+	import { dayOf } from '#lib/days.ts';
+	import { DAY, layout, nextInState, restoreView, startOfDay, unfinished, type Cluster } from '#lib/layout.ts';
 	import type { Action, Graph, GraphNode, Lane, LiveEvent, NodeState } from '#lib/model.ts';
 	import { alerts, reliable, type Alert } from '#lib/notify.ts';
 	import Panel from '#lib/Panel.svelte';
+	import { relationsOf } from '#lib/relations.ts';
 	import Search from '#lib/Search.svelte';
 	import Settings from '#lib/Settings.svelte';
 	import Update from '#lib/Update.svelte';
@@ -49,6 +51,16 @@
 	const byId = $derived(new Map(graph.lanes.flatMap((l) => l.nodes).map((n) => [n.id, n])));
 	const pickedNodes = $derived(picked.map((id) => byId.get(id)).filter((n): n is GraphNode => !!n));
 	const focus = $derived((focusId && byId.get(focusId)) || (pickedNodes.length === 1 ? pickedNodes[0] : null));
+	const laneOf = $derived(new Map(graph.lanes.flatMap((l) => l.nodes.map((n) => [n.id, l] as const))));
+	/** S-86: what the open ticket is related to, strongest first. At most this many are drawn and listed. */
+	const RELATED_SHOWN = 6;
+	const related = $derived(
+		focus
+			? relationsOf(graph.relations, focus.id)
+					.flatMap(({ other, relation }) => (byId.has(other) ? [{ node: byId.get(other)!, relation }] : []))
+					.slice(0, RELATED_SHOWN)
+			: []
+	);
 	const updated = $derived(new Date(now).toTimeString().slice(0, 5));
 	const left = $derived(unfinished(graph));
 
@@ -57,9 +69,23 @@
 		focusId = null;
 	}
 
+	/** Lets go of the open ticket; with none open, of the day (S-89). */
 	function clear() {
+		if (!picked.length) dayPick = null;
 		picked = [];
 		focusId = null;
+	}
+
+	// S-89: a date on the axis was clicked. The side panel says what happened then.
+	let dayPick = $state<{ from: number; to: number } | null>(null);
+	const day = $derived(dayPick ? dayOf(graph.lanes, dayPick.from, dayPick.to) : null);
+	const today = $derived(dayOf(graph.lanes, startOfDay(now)));
+	/** `days` is how many days the stretch covers; the same date again lets go of it. */
+	function pickDay(from: number | null, days = 1) {
+		picked = [];
+		focusId = null;
+		// half a day past the last one, then back to midnight: right on days the clock changes too
+		dayPick = from === null || dayPick?.from === from ? null : { from, to: startOfDay(from + days * DAY + DAY / 2) };
 	}
 
 	const JUMPS = [
@@ -283,13 +309,28 @@
 
 	<main class="flex min-h-0 flex-1 flex-col md:flex-row">
 		{#if graph.lanes.length}
-			<LaneView bind:this={timeline} {view} bind:pxPerDay {picked} onpick={pick} onfold={fold} />
+			<LaneView
+				bind:this={timeline}
+				{view}
+				bind:pxPerDay
+				{picked}
+				onpick={pick}
+				onfold={fold}
+				links={related.map((r) => r.relation)}
+				worked={focus?.work ? { spans: focus.work.spans, state: focus.state } : null}
+				day={dayPick}
+				ondaypick={(t) => pickDay(t, t === startOfDay(now) ? 1 : view.tickDays)}
+			/>
 			<Panel
 				nodes={pickedNodes}
 				{focus}
 				onfocus={(id) => (focusId = id)}
 				unfinished={left.map((u) => u.node)}
-				onshow={(node) => show(node, left.find((u) => u.node.id === node.id)?.lane)}
+				onshow={(node) => show(node, laneOf.get(node.id))}
+				{related}
+				{day}
+				{today}
+				onday={pickDay}
 				onclear={clear}
 				{live}
 			/>

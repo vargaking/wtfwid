@@ -81,6 +81,8 @@ export interface Connector {
 export interface Tick {
 	x: number;
 	label: string | null;
+	/** The start of the day the tick marks. */
+	t: number;
 }
 
 export interface Layout {
@@ -91,6 +93,8 @@ export interface Layout {
 	now: number;
 	/** "now", with today's date in front when the date's own label had no room. */
 	nowLabel: string;
+	/** How many days a labelled tick stands for: one, or a week when days have no room for a label each. */
+	tickDays: 1 | 7;
 	lanes: LaneBox[];
 	connectors: Connector[];
 	ticks: Tick[];
@@ -107,7 +111,7 @@ export function dayLabel(t: number): string {
 	return `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
 }
 
-function startOfDay(t: number): number {
+export function startOfDay(t: number): number {
 	const d = new Date(t);
 	d.setHours(0, 0, 0, 0);
 	return d.getTime();
@@ -335,7 +339,7 @@ export function layout(
 			labelled = false;
 			nowLabel = `${dayLabel(t)} · now`;
 		}
-		ticks.push({ x: tx, label: labelled ? dayLabel(t) : null });
+		ticks.push({ x: tx, label: labelled ? dayLabel(t) : null, t });
 	}
 
 	const count = (s: NodeState) => visible.reduce((sum, l) => sum + l.nodes.filter((n) => inState(n, s)).length, 0);
@@ -346,6 +350,7 @@ export function layout(
 		nowX,
 		now,
 		nowLabel,
+		tickDays: everyDay ? 1 : 7,
 		lanes,
 		connectors,
 		ticks,

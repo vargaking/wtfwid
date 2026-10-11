@@ -34,6 +34,12 @@ const LINES = [
 describe('what a session did', () => {
 	const story = storyFrom(LINES, CWD);
 
+	it('S-88 says when it was at it: a pause of more than five minutes ends a stretch', () => {
+		const ms = (minute: number) => Date.parse(at(minute));
+		// 09:00 to 09:02, then nothing until the prompt at 09:20
+		expect(story.spans).toEqual([[ms(0), ms(2)], [ms(20), ms(29)]]);
+	});
+
 	it('S-84 lists the files it edited, most edited first, and says which it made', () => {
 		expect(story.files).toEqual([
 			{ path: 'src/voice.ts', edits: 2, created: false },

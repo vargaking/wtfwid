@@ -1,4 +1,4 @@
-import type { GraphNode, Session, SessionNote } from './model';
+import type { GraphNode, Relation, Session, SessionNote } from './model';
 
 /** A path as one shell word. */
 const quote = (path: string) => (/^[\w@%+=:,./-]+$/.test(path) ? path : `'${path.replaceAll("'", `'\\''`)}'`);
@@ -30,7 +30,7 @@ const quoted = (text: string) => text.split('\n').map((line) => (line ? `> ${lin
  * It says where things are and how the last session ended. It does not copy the ticket's
  * own text: the new session can read that from Linear, and it would only go stale here.
  */
-export function contextPack(node: GraphNode, notes: Record<string, SessionNote | null | undefined>): string {
+export function contextPack(node: GraphNode, notes: Record<string, SessionNote | null | undefined>, related: { node: GraphNode; relation: Relation }[] = []): string {
 	const out: string[] = [];
 	const isTicket = node.status !== null;
 	out.push(isTicket ? `Continue work on ${node.label}: ${node.title}` : `Continue this work: ${node.title}`, '');
@@ -64,6 +64,19 @@ export function contextPack(node: GraphNode, notes: Record<string, SessionNote |
 		if (files.length) {
 			out.push('', `Files it changed${files.length > FILES_PACKED ? ` (the ${FILES_PACKED} it changed most, of ${files.length})` : ''}:`);
 			for (const f of files.slice(0, FILES_PACKED)) out.push(`- ${f.path}${f.created ? ' (new)' : ''}`);
+		}
+	}
+
+	// S-86: other work on the same part of the code, so the new session knows where to look
+	if (related.length) {
+		out.push('', '## Related work');
+		for (const { node: other, relation } of related) {
+			const name = other.status !== null ? `${other.label} ${other.title}` : other.title;
+			const why = [
+				relation.continued ? (relation.a === node.id ? 'a session went on from this ticket to it' : 'a session came to this ticket from it') : '',
+				relation.files.length ? `changed the same files: ${relation.files.join(', ')}${relation.shared > relation.files.length ? ` and ${relation.shared - relation.files.length} more` : ''}` : ''
+			].filter(Boolean);
+			out.push(`- ${name} (${other.state === 'done' ? 'done' : 'not finished'}): ${why.join('; ')}`);
 		}
 	}
 

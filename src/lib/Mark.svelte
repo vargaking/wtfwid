@@ -10,8 +10,10 @@
 		small?: boolean;
 		/** Something is happening on it right now: the mark breathes (S-85). */
 		alive?: boolean;
+		/** Related to the ticket that is open (S-86). */
+		linked?: boolean;
 	}
-	let { state, stage, count = 0, selected = false, small = false, alive = false }: Props = $props();
+	let { state, stage, count = 0, selected = false, small = false, alive = false, linked = false }: Props = $props();
 </script>
 
 <span
@@ -23,6 +25,7 @@
 	class:selected
 	class:small
 	class:alive
+	class:linked
 >
 	{#if stage === null}{count}{/if}
 </span>
@@ -71,6 +74,10 @@
 	}
 	.selected {
 		outline-color: var(--color-ink);
+	}
+	.linked {
+		outline: 1px solid var(--color-muted);
+		outline-offset: 2px;
 	}
 	.alive {
 		animation: breathe 2.4s ease-in-out infinite;

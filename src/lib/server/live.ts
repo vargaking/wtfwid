@@ -196,6 +196,8 @@ export function createHub(deps: HubDeps) {
 				lastBeat = null;
 			};
 		},
+		/** Tells every open window to read everything again. */
+		nudge: () => send({ type: 'sessions' }),
 		// for tests, which do not want to wait for a timer
 		tick,
 		tail,
