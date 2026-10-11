@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { ROW_H, tOf, xOf, type Cluster, type Layout } from './layout';
+	import { MAX_ZOOM, MIN_ZOOM, ROW_H, tOf, xOf, type Cluster, type Layout } from './layout';
 	import Mark from './Mark.svelte';
 
 	interface Props {
@@ -14,8 +14,6 @@
 	}
 	let { view, pxPerDay = $bindable(), picked, onpick, onfold }: Props = $props();
 
-	const MIN_ZOOM = 12;
-	const MAX_ZOOM = 1600;
 
 	let viewport: HTMLElement;
 	let dragging = $state(false);

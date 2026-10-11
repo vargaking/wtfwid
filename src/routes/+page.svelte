@@ -2,7 +2,7 @@
 	import { goto, refreshAll } from '$app/navigation';
 	import { onMount, tick, untrack } from 'svelte';
 	import LaneView from '#lib/LaneView.svelte';
-	import { layout, nextInState, unfinished, type Cluster } from '#lib/layout.ts';
+	import { layout, nextInState, restoreView, unfinished, type Cluster } from '#lib/layout.ts';
 	import type { Graph, GraphNode, Lane, NodeState } from '#lib/model.ts';
 	import { alerts, type Alert } from '#lib/notify.ts';
 	import Panel from '#lib/Panel.svelte';
@@ -13,8 +13,20 @@
 
 	let { data }: PageProps = $props();
 
-	let pxPerDay = $state(160);
-	let hideFinished = $state(false);
+	const VIEW_KEY = 'wtfwid.view';
+	function readStored(): string | null {
+		try {
+			return localStorage.getItem(VIEW_KEY);
+		} catch {
+			return null;
+		}
+	}
+
+	// S-78: the view comes back the way it was left. The page only runs in a browser, so
+	// storage can be read before anything is drawn and the timeline opens at the right zoom.
+	const kept = restoreView(readStored());
+	let pxPerDay = $state(kept.pxPerDay);
+	let hideFinished = $state(kept.hideFinished);
 	let picked = $state<string[]>([]);
 	let focusId = $state<string | null>(null);
 	let settingsOpen = $state(false);
@@ -22,7 +34,15 @@
 	const graph = $derived(data.graph);
 	const now = $derived(Date.parse(graph.fetchedAt));
 	// S-16: finished lanes are folded until their name is clicked
-	let unfolded = $state<string[]>([]);
+	let unfolded = $state<string[]>(kept.unfolded);
+	$effect(() => {
+		const view = JSON.stringify({ pxPerDay, hideFinished, unfolded });
+		try {
+			localStorage.setItem(VIEW_KEY, view);
+		} catch {
+			// no storage: the view lasts until the window closes
+		}
+	});
 	const view = $derived(layout(graph, now, pxPerDay, hideFinished, undefined, new Set(unfolded)));
 	const fold = (id: string) => (unfolded = unfolded.includes(id) ? unfolded.filter((x) => x !== id) : [...unfolded, id]);
 	const byId = $derived(new Map(graph.lanes.flatMap((l) => l.nodes).map((n) => [n.id, n])));

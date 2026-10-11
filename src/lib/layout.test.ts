@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AXIS_H, DAY, FOLD_H, FOLD_LINE_Y, LANE_H, LINE_Y, MAX_ROWS, ROW_H, layout, nextInState, unfinished } from './layout';
+import { AXIS_H, DAY, FOLD_H, FOLD_LINE_Y, LANE_H, LINE_Y, MAX_ROWS, ROW_H, layout, nextInState, restoreView, unfinished } from './layout';
 import type { Graph, GraphNode, Lane, NodeState } from './model';
 
 const NOW = Date.parse('2026-10-10T12:00:00.000Z');
@@ -259,5 +259,25 @@ describe('unfinished', () => {
 		expect(ids).not.toContain('done');
 		expect(ids).not.toContain('session:s1');
 		expect(unfinished(graph([lane('a', [node('done', '2026-10-05T09:00:00.000Z')])]))).toEqual([]);
+	});
+});
+
+describe('the view as it was left', () => {
+	const first = { pxPerDay: 160, hideFinished: false, unfolded: [] };
+
+	it('S-78 comes back with the zoom, the hide button and the unfolded lines', () => {
+		const stored = JSON.stringify({ pxPerDay: 53.3, hideFinished: true, unfolded: ['m:voice', 'p:web'] });
+		expect(restoreView(stored)).toEqual({ pxPerDay: 53.3, hideFinished: true, unfolded: ['m:voice', 'p:web'] });
+	});
+
+	it('S-78 looks like a first visit when nothing usable was stored', () => {
+		for (const stored of [null, '', 'not json', 'null', '[]', '"160"', '{}']) expect(restoreView(stored)).toEqual(first);
+	});
+
+	it('S-78 ignores a stored value it could not have written', () => {
+		expect(restoreView(JSON.stringify({ pxPerDay: 5 })).pxPerDay).toBe(160);
+		expect(restoreView(JSON.stringify({ pxPerDay: 99999 })).pxPerDay).toBe(160);
+		expect(restoreView(JSON.stringify({ pxPerDay: '300', hideFinished: 'yes', unfolded: 'm:voice' }))).toEqual(first);
+		expect(restoreView(JSON.stringify({ unfolded: ['m:voice', 7, null] })).unfolded).toEqual(['m:voice']);
 	});
 });

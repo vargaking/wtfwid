@@ -94,3 +94,4 @@ One state per ticket, the first of these that applies:
 - **S-75** assumed — Only you can reach it. It answers only requests addressed to this machine, and the desktop app also requires a one-off token that only its own window has.
 - **S-76** assumed — Links to Linear and GitHub open in your browser, not inside the app.
 - **S-77** assumed — The desktop app takes `PATH` from a login shell, so it finds `claude` and `gh` when started from a launcher.
+- **S-78** assumed — The zoom, the "Hide finished" choice and which finished lines are unfolded are remembered on this machine, so the view comes back the way it was left. Stored in the window's own storage, not in the settings file.

@@ -337,3 +337,33 @@ export function unfinished(graph: Graph): { node: GraphNode; lane: Lane }[] {
 		.flatMap((lane) => lane.nodes.filter((node) => !quiet(node)).map((node) => ({ node, lane })))
 		.sort((a, b) => rank(a.node) - rank(b.node) || a.node.at.localeCompare(b.node.at));
 }
+
+/** Zoom limits, in pixels per day. */
+export const MIN_ZOOM = 12;
+export const MAX_ZOOM = 1600;
+
+export interface SavedView {
+	pxPerDay: number;
+	hideFinished: boolean;
+	unfolded: string[];
+}
+
+/**
+ * The view as it was last left, from what was stored (S-78). Anything missing, damaged
+ * or out of range falls back to how a first visit looks.
+ */
+export function restoreView(stored: string | null): SavedView {
+	let raw: Partial<Record<keyof SavedView, unknown>> = {};
+	try {
+		const parsed: unknown = JSON.parse(stored ?? '{}');
+		if (typeof parsed === 'object' && parsed !== null) raw = parsed;
+	} catch {
+		// not JSON
+	}
+	const zoom = raw.pxPerDay;
+	return {
+		pxPerDay: typeof zoom === 'number' && zoom >= MIN_ZOOM && zoom <= MAX_ZOOM ? zoom : 160,
+		hideFinished: raw.hideFinished === true,
+		unfolded: Array.isArray(raw.unfolded) ? raw.unfolded.filter((id): id is string => typeof id === 'string').slice(0, 200) : []
+	};
+}
