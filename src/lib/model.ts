@@ -111,6 +111,15 @@ export interface SessionStory {
 	recent: Action[];
 }
 
+/** What the live stream sends (S-85). */
+export type LiveEvent =
+	/** on connecting: the last things each running session did, by session id */
+	| { type: 'hello'; sessions: Record<string, Action[]> }
+	/** a running session did something */
+	| { type: 'actions'; id: string; actions: Action[] }
+	/** a session started, stopped or changed state: read everything again */
+	| { type: 'sessions' };
+
 // --- what the screen draws -------------------------------------------------
 
 export interface GraphNode {

@@ -106,6 +106,9 @@ session, read when you open the ticket. Nothing is written and no model is calle
 From there you can copy the command that resumes a session (`claude --resume …` in its
 folder), or copy a prompt that hands a new session everything wtfwid knows about the ticket.
 
+While a session is running you can watch it: the panel shows what it is doing as it happens
+(the command it runs, the file it edits, what it says), and its ticket breathes on the timeline.
+
 Past sessions are found the same way. Every transcript under `~/.claude/projects` is a
 session, so the timeline has your history the first time you open the app. A past session
 is drawn on the ticket whose branch it was on; one that matches no ticket is left out.
