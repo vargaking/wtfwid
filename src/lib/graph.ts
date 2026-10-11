@@ -117,7 +117,8 @@ export function buildGraph(raw: Snapshot): Graph {
 	for (const s of snap.sessions) {
 		const issue = find(`${s.name ?? ''} ${s.branch ?? ''} ${s.cwd}`);
 		if (issue) sessionsOf.set(issue.id, [...(sessionsOf.get(issue.id) ?? []), s]);
-		else loose.push(sessionNode(s)); // S-52
+		// S-83: a past session found on disk that belongs to no ticket is another project's, or noise
+		else if (!(s.fromDisk && s.gone)) loose.push(sessionNode(s)); // S-52
 	}
 	for (const p of snap.prs) {
 		const issue = find(`${p.branch} ${p.title}`);

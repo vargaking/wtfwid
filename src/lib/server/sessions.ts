@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { Session } from '../model';
+import { discoverSessions } from './discover';
 import { findTranscript, lastBranch } from './transcript';
 
 const run = promisify(execFile);
@@ -45,21 +46,31 @@ export function toSession(e: AgentEntry): Session {
 }
 
 /**
- * Adds the sessions Claude Code lists now to the ones seen before (S-53).
- * A remembered session that is no longer listed keeps its place; one that was
- * working or waiting can no longer be either, so it becomes "open".
+ * Adds the sessions Claude Code lists now to the ones seen before (S-53), and the ones
+ * found as transcripts on disk (S-83).
+ * - A remembered session that is no longer listed keeps its place; one that was working
+ *   or waiting can no longer be either, so it becomes "open".
+ * - A session found on disk is new history if it was never seen. If it was, its transcript
+ *   still knows best what it is called, where it is and when it last did something.
  */
-export function remember(known: Session[], listed: Session[]): Session[] {
+export function remember(known: Session[], listed: Session[], found: Session[] = []): Session[] {
 	const now = new Map(listed.map((s) => [s.id, s]));
+	const onDisk = new Map(found.map((s) => [s.id, s]));
 	const kept = known
 		.filter((s) => !now.has(s.id))
-		.map((s): Session => ({
-			...s,
-			gone: true,
-			waitingFor: null,
-			state: s.state === 'working' || s.state === 'needs' ? 'open' : s.state
-		}));
-	return [...kept, ...listed].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+		.map((s): Session => {
+			const disk = onDisk.get(s.id);
+			return {
+				...s,
+				gone: true,
+				waitingFor: null,
+				state: s.state === 'working' || s.state === 'needs' ? 'open' : s.state,
+				...(disk && { name: s.name ?? disk.name, branch: disk.branch ?? s.branch ?? null, lastAt: disk.lastAt ?? s.lastAt ?? null })
+			};
+		});
+	const before = new Set(known.map((s) => s.id));
+	const fresh = found.filter((s) => !now.has(s.id) && !before.has(s.id));
+	return [...kept, ...fresh, ...listed].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 }
 
 export async function listSessions(): Promise<Session[]> {
@@ -82,12 +93,14 @@ async function withBranches(listed: Session[], known: Session[], claude: string 
 
 /** `claude` is where Claude Code keeps its files; tests point it somewhere else. */
 export async function collectSessions(home: string, list: () => Promise<Session[]> = listSessions, claude?: string): Promise<Session[]> {
+	// finding past sessions must never stand in the way of showing the current ones
+	const found = await discoverSessions(claude).catch(() => [] as Session[]);
 	const file = join(home, 'sessions.json');
 	// No file yet means nothing remembered. A file that cannot be read is an error, not an
 	// empty list: carrying on would write it back without the sessions it held.
 	const known: unknown = await readFile(file, 'utf8').then(JSON.parse, (e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? [] : Promise.reject(e)));
 	if (!Array.isArray(known)) throw new Error(`${file} does not hold a list of sessions`);
-	const all = remember(known, await withBranches(await list(), known, claude));
+	const all = remember(known, await withBranches(await list(), known, claude), found);
 	await mkdir(home, { recursive: true });
 	// written beside the file and moved into place, so nothing ever reads half of it
 	const draft = `${file}.${process.pid}.tmp`;

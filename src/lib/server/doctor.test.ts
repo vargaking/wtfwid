@@ -51,11 +51,12 @@ describe('checking the connections', () => {
 				'       o/private: HTTP 404, no such repository, or the token cannot see it',
 				'ok   Claude Code: Claude Code lists 2 sessions.',
 				'       1 working, 1 waiting for you, 0 failed, 0 idle or finished',
+				'       0 more past sessions found as transcripts on disk',
 				'ok   Session transcripts: Found a transcript for 1 of the 2 most recent sessions.',
 				"       Your prompts readable in 1, Claude's last reply in 1",
 				'       Git branch readable in 1; 1 moved from one branch to another',
 				'       0 opened a pull request',
-				'ok   Sessions on tickets: 2 of the 2 most recent sessions belong to a ticket.',
+				'ok   Sessions on tickets: 2 of 2 sessions belong to a ticket (2 recent ones, 0 from disk).',
 				'       1 by their name or folder, 1 more by the branch they are on'
 			].join('\n')
 		);
@@ -109,7 +110,14 @@ describe('checking the connections', () => {
 		const checks = await checkAll({ cfg: cfg({ githubRepos: [] }), fetcher, list: async () => many(30), claude: '/nowhere', ghToken: async () => null });
 		expect(checks[2].summary).toBe('Claude Code lists 30 sessions.');
 		expect(checks[3].summary).toBe('No transcript found for any of the 20 most recent sessions. Looked in /nowhere/projects.');
-		expect(checks[4].summary).toBe('3 of the 20 most recent sessions belong to a ticket.');
+		expect(checks[4].summary).toBe('3 of 20 sessions belong to a ticket (20 recent ones, 0 from disk).');
+	});
+
+	it('S-79 counts the past sessions found on disk, and how many of them land on a ticket', async () => {
+		const claude = await claudeDir(LINES); // one transcript, last on dev/eng-3-thing
+		const checks = await checkAll({ cfg: cfg({ githubRepos: [] }), fetcher, list: async () => [session(OTHER, { name: 'scratch' })], claude, ghToken: async () => null });
+		expect(checks[2].details.at(-1)).toBe('1 more past session found as transcripts on disk');
+		expect(checks[4].summary).toBe('1 of 2 sessions belong to a ticket (1 recent one, 1 from disk).');
 	});
 
 	it('S-79 tells a refused request from a machine that is offline, and keeps your name out of paths', async () => {

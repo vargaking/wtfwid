@@ -57,8 +57,9 @@ describe('Claude Code sessions', () => {
 
 	it('S-53 remembers sessions in a file between runs', async () => {
 		const home = await mkdtemp(join(tmpdir(), 'wtfwid-'));
-		await collectSessions(home, async () => [s('a', 'working')]);
-		const second = await collectSessions(home, async () => [s('b', 'working', '2026-10-02T00:00:00.000Z')]);
+		const nowhere = join(home, 'no-claude'); // keep this machine's own sessions out of the test
+		await collectSessions(home, async () => [s('a', 'working')], nowhere);
+		const second = await collectSessions(home, async () => [s('b', 'working', '2026-10-02T00:00:00.000Z')], nowhere);
 		expect(second.map((x) => [x.id, x.gone])).toEqual([['a', true], ['b', false]]);
 		expect(JSON.parse(await readFile(join(home, 'sessions.json'), 'utf8'))).toEqual(second);
 	});

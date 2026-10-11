@@ -1,6 +1,7 @@
 import { buildGraph } from '../graph';
 import type { Issue, Session } from '../model';
 import { config } from './config';
+import { discoverSessions } from './discover';
 import { fetchPullRequests, githubToken } from './github';
 import { fetchIssues } from './linear';
 import { listSessions } from './sessions';
@@ -160,8 +161,9 @@ async function checkTranscripts({ claude }: Deps, sessions: Session[]): Promise<
 }
 
 /** How many sessions end up on a ticket (S-50), which is what makes the timeline useful. */
-function checkLinking(issues: Issue[], sessions: Session[]): Check {
+function checkLinking(issues: Issue[], recent: Session[], past: Session[]): Check {
 	const name = 'Sessions on tickets';
+	const sessions = [...recent, ...past];
 	if (!issues.length || !sessions.length) return { name, ok: null, summary: 'Needs both Linear issues and sessions.', details: [] };
 	const link = (list: Session[]) => {
 		const graph = buildGraph({ fetchedAt: '', demo: false, warnings: [], issues, prs: [], sessions: list });
@@ -172,7 +174,7 @@ function checkLinking(issues: Issue[], sessions: Session[]): Check {
 	return {
 		name,
 		ok: matched > 0,
-		summary: `${matched} of the ${sessions.length} most recent sessions belong to a ticket.`,
+		summary: `${matched} of ${plural(sessions.length, 'session')} belong to a ticket (${plural(recent.length, 'recent one')}, ${past.length} from disk).`,
 		details: [`${byNameOnly} by their name or folder, ${matched - byNameOnly} more by the branch they are on`, ...(matched ? [] : ['Work on the branch Linear suggests for the issue, or name the session after it: claude -n "ENG-123 …"'])]
 	};
 }
@@ -181,7 +183,11 @@ export async function checkAll(over: Partial<Deps> = {}): Promise<Check[]> {
 	const deps: Deps = { cfg: over.cfg ?? (await config()), fetcher: fetch, list: listSessions, claude: claudeHome(), ghToken: githubToken, ...over };
 	const [linear, github, listed] = await Promise.all([checkLinear(deps), checkGitHub(deps), checkSessions(deps)]);
 	const transcripts = await checkTranscripts(deps, listed.sessions);
-	return [linear.check, github, listed.check, transcripts.check, checkLinking(linear.issues, transcripts.sessions)];
+	// S-83: past sessions found as transcripts count too; most of the history is there
+	const live = new Set(listed.sessions.map((s) => s.id));
+	const past = (await discoverSessions(deps.claude).catch(() => [] as Session[])).filter((s) => !live.has(s.id));
+	if (listed.check.ok) listed.check.details.push(`${plural(past.length, 'more past session')} found as transcripts on disk`);
+	return [linear.check, github, listed.check, transcripts.check, checkLinking(linear.issues, transcripts.sessions, past)];
 }
 
 /** The same result as plain text, to paste into a chat or an issue. */

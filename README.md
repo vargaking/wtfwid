@@ -98,12 +98,17 @@ in `~/.wtfwid/sessions.json`, so they stay on the timeline after they are gone.
 ## What a session was doing
 
 Open a ticket and each of its sessions shows what it was started with, the last thing you
-asked, the last thing Claude said and the pull requests it opened. That comes straight from
-Claude Code's transcript of the session, read when you open the ticket. Nothing is written
-and no model is called.
+asked, the last thing Claude said and the pull requests it opened, and what it did: how
+long it was at it, the files it edited, the commands it ran, roughly how many lines it
+wrote, and the tokens it used. That comes straight from Claude Code's transcript of the
+session, read when you open the ticket. Nothing is written and no model is called.
 
 From there you can copy the command that resumes a session (`claude --resume …` in its
 folder), or copy a prompt that hands a new session everything wtfwid knows about the ticket.
+
+Past sessions are found the same way. Every transcript under `~/.claude/projects` is a
+session, so the timeline has your history the first time you open the app. A past session
+is drawn on the ticket whose branch it was on; one that matches no ticket is left out.
 
 ## What it does not do yet
 
