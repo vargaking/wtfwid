@@ -87,6 +87,8 @@ export interface Layout {
 	width: number;
 	height: number;
 	nowX: number;
+	/** The time that is "now", so the overview strip can map time without knowing the zoom (S-80). */
+	now: number;
 	/** "now", with today's date in front when the date's own label had no room. */
 	nowLabel: string;
 	lanes: LaneBox[];
@@ -342,6 +344,7 @@ export function layout(
 		width: nowX + 260,
 		height: y + 32,
 		nowX,
+		now,
 		nowLabel,
 		lanes,
 		connectors,
