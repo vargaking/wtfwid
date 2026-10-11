@@ -59,12 +59,18 @@ async function start() {
 	process.env.WTFWID_TOKEN = token;
 
 	let handler;
-	const server = http.createServer((req, res) =>
+	const server = http.createServer((req, res) => {
+		// the port is open a moment before the app behind it has loaded
+		if (!handler) {
+			res.statusCode = 503;
+			res.end();
+			return;
+		}
 		handler(req, res, () => {
 			res.statusCode = 404;
 			res.end();
-		})
-	);
+		});
+	});
 	// The same port every time, so the window's own storage (S-78: zoom, folded lines) is
 	// still there after a restart: a browser keeps storage per address. If something else
 	// has the port, any free one will do and the view just opens fresh.

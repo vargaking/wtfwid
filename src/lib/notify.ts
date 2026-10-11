@@ -18,18 +18,32 @@ function alertFor(node: GraphNode, kind: Alert['kind']): Alert {
 }
 
 /**
+ * Whether a refresh can be compared with another. When Linear or Claude Code could not be
+ * read, tickets and sessions are simply missing, and that would look like everything stopped.
+ */
+export function reliable(graph: Graph): boolean {
+	return !graph.setup && !graph.warnings.some((w) => w.startsWith('Linear') || w.startsWith('Claude Code'));
+}
+
+/**
  * What changed between two refreshes that is worth interrupting for (S-18):
  * a ticket starts needing you, a session fails, or a session that was working stops.
+ * Nothing when the two cannot be compared: first-run setup, demo against real, a failed source.
  */
 export function alerts(before: Graph, after: Graph): Alert[] {
-	const was = new Map(before.lanes.flatMap((l) => l.nodes).map((n) => [n.id, n.state]));
+	if (!reliable(before) || !reliable(after) || before.demo !== after.demo) return [];
+	const nodes = (g: Graph) => g.lanes.flatMap((l) => l.nodes);
+	const was = new Map(nodes(before).map((n) => [n.id, n.state]));
+	// "failed" is said once per session that fails, not each time the ticket's state comes back round to it
+	const failedBefore = new Set(nodes(before).flatMap((n) => n.sessions.filter((s) => s.state === 'failed').map((s) => s.id)));
 	const out: Alert[] = [];
-	for (const node of after.lanes.flatMap((l) => l.nodes)) {
+	for (const node of nodes(after)) {
 		const prev = was.get(node.id);
 		if (node.state === prev) continue;
 		if (node.state === 'needs') out.push(alertFor(node, 'needs'));
-		else if (node.state === 'failed') out.push(alertFor(node, 'failed'));
-		else if (prev === 'working') out.push(alertFor(node, 'finished'));
+		else if (node.state === 'failed') {
+			if (node.sessions.some((s) => s.state === 'failed' && !failedBefore.has(s.id))) out.push(alertFor(node, 'failed'));
+		} else if (prev === 'working') out.push(alertFor(node, 'finished'));
 	}
 	return out;
 }

@@ -95,7 +95,19 @@ function prNode(p: PullRequest): GraphNode {
 
 const start = (lane: Lane) => lane.nodes[0]?.at ?? '9999';
 
-export function buildGraph(snap: Snapshot): Graph {
+/** The first of each. A source can hand the same thing back twice, and a node must exist once. */
+function unique<T>(items: T[], id: (item: T) => string): T[] {
+	const seen = new Set<string>();
+	return items.filter((item) => !seen.has(id(item)) && seen.add(id(item)));
+}
+
+export function buildGraph(raw: Snapshot): Graph {
+	const snap = {
+		...raw,
+		issues: unique(raw.issues, (i) => i.id),
+		prs: unique(raw.prs, (p) => `${p.repo.toLowerCase()}#${p.number}`),
+		sessions: unique(raw.sessions, (s) => s.id)
+	};
 	const issues = snap.issues.filter((i) => !HIDDEN_STATE_TYPES.has(i.stateType) && !i.canceledAt); // S-33
 	const find = matcher(issues);
 

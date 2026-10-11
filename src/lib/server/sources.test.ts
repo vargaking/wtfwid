@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildGraph } from '../graph';
 import type { Session } from '../model';
+import { recent } from './collect';
 import { demoSnapshot } from './demo';
 import { fetchPullRequests, toPullRequest } from './github';
 import { fetchIssues } from './linear';
@@ -128,6 +129,30 @@ describe('GitHub', () => {
 			'/repos/o/long/pulls:2',
 			'/repos/o/long/pulls:3'
 		]);
+	});
+});
+
+describe('asking again', () => {
+	it('S-18 reuses an answer from Linear or GitHub for 45 seconds, then asks again', async () => {
+		let asked = 0;
+		const job = async () => [++asked];
+		const t = 1_000_000;
+		expect(await recent('reuse a', job, t)).toEqual([1]);
+		expect(await recent('reuse a', job, t + 44_000)).toEqual([1]);
+		expect(await recent('reuse a', job, t + 46_000)).toEqual([2]);
+		// other settings are another question
+		expect(await recent('reuse b', job, t + 46_000)).toEqual([3]);
+	});
+
+	it('S-18 does not keep a failure, and asks once when two refreshes overlap', async () => {
+		let asked = 0;
+		const failing = async () => Promise.reject(new Error(`down ${++asked}`));
+		await expect(recent('reuse c', failing, 5_000_000)).rejects.toThrow('down 1');
+		await expect(recent('reuse c', failing, 5_000_001)).rejects.toThrow('down 2');
+		let started = 0;
+		const slow = () => new Promise<number[]>((done) => (started++, setTimeout(() => done([7]), 10)));
+		expect(await Promise.all([recent('reuse d', slow, 6_000_000), recent('reuse d', slow, 6_000_000)])).toEqual([[7], [7]]);
+		expect(started).toBe(1);
 	});
 });
 
