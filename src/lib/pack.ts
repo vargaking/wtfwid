@@ -6,9 +6,18 @@ const quote = (path: string) => (/^[\w@%+=:,./-]+$/.test(path) ? path : `'${path
 /** Claude Code session ids are UUIDs. Anything else is a stand-in wtfwid made up, and cannot be resumed. */
 const resumable = (id: string) => /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id);
 
-/** The command that picks a session up where it stopped, or null when there is none (S-59). */
+/** A drive letter or a network share: the session ran on Windows. */
+const isWindowsPath = (path: string) => /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\');
+
+/**
+ * The command that picks a session up where it stopped, or null when there is none (S-59).
+ * Written for the shell the folder's own form points to: sh, bash, zsh or fish for a
+ * Unix path, PowerShell for a Windows one, where "&&" and backslash-quoting do not exist.
+ */
 export function resumeCommand(session: Session): string | null {
-	return resumable(session.id) ? `cd ${quote(session.cwd)} && claude --resume ${session.id}` : null;
+	if (!resumable(session.id)) return null;
+	if (isWindowsPath(session.cwd)) return `cd '${session.cwd.replaceAll("'", "''")}'; claude --resume ${session.id}`;
+	return `cd ${quote(session.cwd)} && claude --resume ${session.id}`;
 }
 
 const day = (iso: string) => new Date(iso).toISOString().slice(0, 10);
@@ -19,7 +28,7 @@ const quoted = (text: string) => text.split('\n').map((line) => (line ? `> ${lin
  * It says where things are and how the last session ended. It does not copy the ticket's
  * own text: the new session can read that from Linear, and it would only go stale here.
  */
-export function contextPack(node: GraphNode, notes: Record<string, SessionNote | undefined>): string {
+export function contextPack(node: GraphNode, notes: Record<string, SessionNote | null | undefined>): string {
 	const out: string[] = [];
 	const isTicket = node.status !== null;
 	out.push(isTicket ? `Continue work on ${node.label}: ${node.title}` : `Continue this work: ${node.title}`, '');
@@ -41,7 +50,8 @@ export function contextPack(node: GraphNode, notes: Record<string, SessionNote |
 		const note = notes[s.id];
 		out.push('', `## Earlier session${s.name ? ` "${s.name}"` : ''}, started ${day(s.startedAt)}`);
 		if (!note) {
-			out.push('', 'Its transcript is not on this machine any more.');
+			// null: looked for and gone. Nothing at all: it could not be read, which is not the same claim.
+			out.push('', note === null ? 'Its transcript is not on this machine any more.' : 'Its transcript could not be read just now.');
 			continue;
 		}
 		if (note.firstPrompt && note.firstPrompt !== note.lastPrompt) out.push('', 'It was started with:', quoted(note.firstPrompt));

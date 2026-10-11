@@ -23,6 +23,7 @@ const fetcher = (async (url: string) => {
 }) as typeof fetch;
 
 const session = (id: string, over: Partial<Session> = {}): Session => ({ id, name: 'claude-07', cwd: '/home/dev/app', kind: 'interactive', startedAt: '2026-10-10T09:00:00.000Z', state: 'working', waitingFor: null, gone: false, ...over });
+const many = (n: number) => Array.from({ length: n }, (_, i) => session(`00000000-0000-4000-8000-${String(i).padStart(12, '0')}`, { name: i < 3 ? `ENG-${i + 1} work` : 'scratch', startedAt: new Date(Date.parse('2026-10-10T09:00:00.000Z') - i * 3_600_000).toISOString() }));
 const entry = (type: string, text: string, gitBranch: string) =>
 	JSON.stringify({ parentUuid: null, isSidechain: false, cwd: '/home/dev/app', sessionId: ID, gitBranch, type, message: { role: type, content: type === 'user' ? text : [{ type: 'text', text }] }, timestamp: '2026-10-10T09:00:00.000Z' });
 
@@ -32,7 +33,7 @@ async function claudeDir(lines: string[]) {
 	await writeFile(join(root, 'projects', '-home-dev-app', `${ID}.jsonl`), lines.join('\n') + '\n');
 	return root;
 }
-const LINES = [entry('user', 'a secret prompt', 'main'), entry('assistant', 'a secret reply', 'main'), entry('user', 'next', 'dev/eng-3-thing'), entry('assistant', 'done', 'dev/eng-3-thing')];
+const LINES = [entry('user', 'a secret prompt', 'main'), entry('assistant', 'a secret reply', 'main'), entry('user', 'the last secret prompt', 'dev/eng-3-thing'), entry('assistant', 'the last secret reply', 'dev/eng-3-thing')];
 
 describe('checking the connections', () => {
 	it('S-79 reports what each source gave back, in counts', async () => {
@@ -54,7 +55,7 @@ describe('checking the connections', () => {
 				"       Your prompts readable in 1, Claude's last reply in 1",
 				'       Git branch readable in 1; 1 moved from one branch to another',
 				'       0 opened a pull request',
-				'ok   Sessions on tickets: 2 of 2 sessions belong to a ticket.',
+				'ok   Sessions on tickets: 2 of the 2 most recent sessions belong to a ticket.',
 				'       1 by their name or folder, 1 more by the branch they are on'
 			].join('\n')
 		);
@@ -62,8 +63,13 @@ describe('checking the connections', () => {
 
 	it('S-79 never repeats a title, a prompt or a reply', async () => {
 		const claude = await claudeDir(LINES);
-		const text = JSON.stringify(await checkAll({ cfg: cfg(), fetcher, list: async () => [session(ID)], claude, ghToken: async () => 'tok' }));
-		expect(text).not.toContain('secret');
+		const told = session(ID, { name: 'secret session name', waitingFor: 'secret question', state: 'needs' });
+		const checks = await checkAll({ cfg: cfg(), fetcher, list: async () => [told], claude, ghToken: async () => 'tok' });
+		// every prompt and reply in the transcript, the issue and pull request titles, the session's name and what it waits for
+		expect(JSON.stringify(checks)).not.toContain('secret');
+		expect(asText(checks)).not.toContain('secret');
+		// and it did read them: the transcript check found a prompt and a reply
+		expect(checks[3].details[0]).toBe("Your prompts readable in 1, Claude's last reply in 1");
 	});
 
 	it('S-79 says "not set" for what is not set up, without trying it', async () => {
@@ -97,6 +103,24 @@ describe('checking the connections', () => {
 		expect(checks[3]).toMatchObject({ ok: false, summary: 'Found 1 of the 1 most recent, but could not read any. The format may differ from the one wtfwid knows.' });
 		const gone = await checkAll({ cfg: cfg({ githubRepos: [] }), fetcher: empty, list: async () => [session(OTHER)], claude, ghToken: async () => null });
 		expect(gone[3]).toMatchObject({ ok: false, summary: `No transcript found for any of the 1 most recent sessions. Looked in ${claude}/projects.` });
+	});
+
+	it('S-79 says how many sessions it looked at when there are more than it reads', async () => {
+		const checks = await checkAll({ cfg: cfg({ githubRepos: [] }), fetcher, list: async () => many(30), claude: '/nowhere', ghToken: async () => null });
+		expect(checks[2].summary).toBe('Claude Code lists 30 sessions.');
+		expect(checks[3].summary).toBe('No transcript found for any of the 20 most recent sessions. Looked in /nowhere/projects.');
+		expect(checks[4].summary).toBe('3 of the 20 most recent sessions belong to a ticket.');
+	});
+
+	it('S-79 tells a refused request from a machine that is offline, and keeps your name out of paths', async () => {
+		// a key with a character a request cannot carry never leaves the machine: that is not "offline"
+		const invalid = (async () => Promise.reject(new TypeError('Headers.append: "k\u200b" is an invalid header value.'))) as unknown as typeof fetch;
+		const [linear, github] = await checkAll({ cfg: cfg({ githubRepos: ['o/r'] }), fetcher: invalid, list: async () => [], claude: '/nowhere', ghToken: async () => null });
+		expect(linear.summary).toMatch(/^Linear refused: Headers.append/);
+		expect(github.details[1]).toMatch(/^o\/r: Headers.append/);
+		const home = (await import('node:os')).homedir();
+		const [, , , transcripts] = await checkAll({ cfg: cfg({ linearKey: null, githubRepos: [] }), fetcher, list: async () => [session(ID)], claude: `${home}/.claude`, ghToken: async () => null });
+		expect(transcripts.summary).toBe('No transcript found for any of the 1 most recent sessions. Looked in ~/.claude/projects.');
 	});
 
 	it('S-79 reads the branches a session moved through, in order', async () => {
