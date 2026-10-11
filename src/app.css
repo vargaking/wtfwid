@@ -82,3 +82,29 @@ button {
 	--tone: #8b9aa3;
 	--on: #8b9aa3;
 }
+
+/* Scrollbars: thin, rounded, in the timeline's own greys. */
+::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+	background: transparent;
+}
+::-webkit-scrollbar-thumb {
+	/* the border in the page colour leaves a 6px thumb with space around it */
+	border: 2px solid var(--color-ground);
+	border-radius: 5px;
+	background: var(--color-rail);
+}
+::-webkit-scrollbar-thumb:hover {
+	background: var(--color-faint);
+}
+/* Firefox has no ::-webkit-scrollbar; give it the standard equivalent. */
+@supports not selector(::-webkit-scrollbar) {
+	* {
+		scrollbar-width: thin;
+		scrollbar-color: var(--color-rail) transparent;
+	}
+}
