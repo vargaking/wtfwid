@@ -113,6 +113,44 @@ Past sessions are found the same way. Every transcript under `~/.claude/projects
 session, so the timeline has your history the first time you open the app. A past session
 is drawn on the ticket whose branch it was on; one that matches no ticket is left out.
 
+## In your status bar
+
+One line that says whether a session is waiting for you, without opening the app:
+
+```sh
+node scripts/status.js            # 2 need you · 3 working    (or: idle)
+node scripts/status.js --json     # the counts, and each running session
+node scripts/status.js --watch    # keeps running, prints a line only when it changed
+node scripts/status.js --help
+```
+
+It asks Claude Code and nothing else, so it needs no Linear key and no running app. It does
+need Node and this checkout: it is not inside the AppImage or the installers.
+
+For [Waybar](https://github.com/Alexays/Waybar), add `custom/wtfwid` to a modules list and:
+
+```jsonc
+"custom/wtfwid": {
+	"exec": "node /path/to/wtfwid/scripts/status.js --waybar --watch",
+	"return-type": "json",
+	"restart-interval": 30
+}
+```
+
+The module shows how many sessions need you, or how many are working when none do, and
+nothing when idle. Its tooltip lists them. Its class is `needs`, `working`, `idle` or `error`:
+
+```css
+#custom-wtfwid.needs { color: #ffb000; }
+#custom-wtfwid.working { color: #4fb3ff; }
+```
+
+If it stays empty while a session is running, run the `exec` command in a terminal. Most
+often Waybar was started with a `PATH` that does not have `claude` in it.
+
+In tmux: `set -g status-right '#(node /path/to/wtfwid/scripts/status.js)'`. A shell prompt
+can call it the same way, but every call starts `claude` and takes about half a second.
+
 ## What it does not do yet
 
 See [SPEC.md](SPEC.md). Every behaviour there has an ID and is marked *stated*, *assumed*
