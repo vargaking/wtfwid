@@ -1,5 +1,5 @@
-// The desktop app: runs the built wtfwid server inside this process, on a private
-// local port, and shows it in one window.
+// The desktop app: runs the built wtfwid server inside this process, on a local port
+// only this machine can reach, and shows it in one window.
 import { app, BrowserWindow, safeStorage, session, shell } from 'electron';
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -33,6 +33,9 @@ function keychain() {
 	};
 }
 
+/** The local port the app serves itself on. Nothing special about the number. */
+const PORT = 47113;
+
 const isWeb = (url) => /^https?:\/\//.test(url);
 let win;
 
@@ -62,7 +65,13 @@ async function start() {
 			res.end();
 		})
 	);
-	await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+	// The same port every time, so the window's own storage (S-78: zoom, folded lines) is
+	// still there after a restart: a browser keeps storage per address. If something else
+	// has the port, any free one will do and the view just opens fresh.
+	await new Promise((resolve) => {
+		server.once('error', () => server.listen(0, '127.0.0.1', resolve));
+		server.listen(PORT, '127.0.0.1', resolve);
+	});
 	const origin = `http://127.0.0.1:${server.address().port}`;
 	process.env.ORIGIN = origin; // the server reads this when it loads
 	({ handler } = await import('../build/handler.js'));
